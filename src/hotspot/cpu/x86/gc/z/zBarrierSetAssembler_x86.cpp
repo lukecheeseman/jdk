@@ -270,6 +270,10 @@ static void call_vm(MacroAssembler* masm,
   __ MacroAssembler::call_VM_leaf_base(entry_point, 2);
 }
 
+static void my_method(void* oop) {
+  printf("arg: %p\n", oop);
+}
+
 void ZBarrierSetAssembler::load_at(MacroAssembler* masm,
                                    DecoratorSet decorators,
                                    BasicType type,
@@ -283,6 +287,16 @@ void ZBarrierSetAssembler::load_at(MacroAssembler* masm,
   }
 
   BLOCK_COMMENT("ZBarrierSetAssembler::load_at {");
+
+  // __ call_VM(noreg, CAST_FROM_FN_PTR(address, my_method));
+  // JNI mark_word
+  // Change the age bits for zgc
+  // JVM flag to esnure ages bits are not overriden by locking (somthing object monitor table) gotta CAS 'em all
+  // -XX:+UseObjectMonitorTable
+  // /home/luke/workspace/jdk/build/linux-x86_64-server-fastdebug/jdk/bin/java -XX:+UseZGC -Xlog:gc -Xmx16G  Main.java 
+  /*
+    TODO: call in VM stuff
+  */
 
   // Allocate scratch register
   Register scratch = tmp1;
@@ -305,6 +319,14 @@ void ZBarrierSetAssembler::load_at(MacroAssembler* masm,
 
   // Load oop at address
   __ movptr(dst, Address(scratch, 0));
+
+
+  {
+    // Call VM
+    ZRuntimeCallSpill rcs(masm, noreg, ZXMMSpillMode::avx128);
+    __ movptr(c_rarg0, dst);
+    __ MacroAssembler::call_VM_leaf_base(CAST_FROM_FN_PTR(address, my_method), 1);
+  }
 
   const bool on_non_strong =
       (decorators & ON_WEAK_OOP_REF) != 0 ||
