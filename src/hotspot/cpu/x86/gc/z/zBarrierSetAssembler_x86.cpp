@@ -270,8 +270,24 @@ static void call_vm(MacroAssembler* masm,
   __ MacroAssembler::call_VM_leaf_base(entry_point, 2);
 }
 
-static void my_method(void* oop) {
-  printf("arg: %p\n", oop);
+static void record_load(oopDesc* desc) {
+  if (desc != nullptr) {
+    const markWord word = desc->mark();
+    const int age = word.age();
+    if (age) {
+      printf("Load of tracked object: %p\n", desc);
+    }
+  }
+}
+
+static void record_store(oopDesc* desc) {
+  if (desc != nullptr) {
+    const markWord word = desc->mark();
+    const int age = word.age();
+    if (age) {
+      printf("Store to tracked object: %p\n", desc);
+    }
+  }
 }
 
 void ZBarrierSetAssembler::load_at(MacroAssembler* masm,
@@ -320,14 +336,6 @@ void ZBarrierSetAssembler::load_at(MacroAssembler* masm,
   // Load oop at address
   __ movptr(dst, Address(scratch, 0));
 
-
-  {
-    // Call VM
-    ZRuntimeCallSpill rcs(masm, noreg, ZXMMSpillMode::avx128);
-    __ movptr(c_rarg0, dst);
-    __ MacroAssembler::call_VM_leaf_base(CAST_FROM_FN_PTR(address, my_method), 1);
-  }
-
   const bool on_non_strong =
       (decorators & ON_WEAK_OOP_REF) != 0 ||
       (decorators & ON_PHANTOM_OOP_REF) != 0;
@@ -367,6 +375,13 @@ void ZBarrierSetAssembler::load_at(MacroAssembler* masm,
   __ movptr(rcx, scratch); // restore rcx
 
   __ bind(done);
+
+  {
+    // Call VM
+    ZRuntimeCallSpill rcs(masm, noreg, ZXMMSpillMode::avx128);
+    __ movq(c_rarg0, (Address(dst, 0)).base());
+    __ MacroAssembler::call_VM_leaf_base(CAST_FROM_FN_PTR(address, record_load), 1);
+  }
 
   // Restore scratch register
   if (tmp1 == noreg) {
@@ -616,6 +631,14 @@ void ZBarrierSetAssembler::store_at(MacroAssembler* masm,
       Label medium_continuation;
       Label slow;
       Label slow_continuation;
+
+      {
+        // Call VM
+        ZRuntimeCallSpill rcs(masm, noreg, ZXMMSpillMode::avx128);
+        __ movq(c_rarg0, dst.base());
+        __ MacroAssembler::call_VM_leaf(CAST_FROM_FN_PTR(address, record_store), c_rarg0);
+      }
+
       store_barrier_fast(masm, dst, src, tmp1, false, false, medium, medium_continuation);
       __ jmp(done);
       __ bind(medium);
