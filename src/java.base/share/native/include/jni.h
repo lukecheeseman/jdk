@@ -219,6 +219,7 @@ struct JNINativeInterface_ {
     void *reserved2;
 
     void *reserved3;
+
     jint (JNICALL *GetVersion)(JNIEnv *env);
 
     jclass (JNICALL *DefineClass)
@@ -783,6 +784,8 @@ struct JNINativeInterface_ {
     jlong (JNICALL *GetStringUTFLengthAsLong)
       (JNIEnv *env, jstring str);
 
+    void (JNICALL *TagObjectForDRTracking)
+      (JNIEnv *env, jobject target);
 };
 
 /*
@@ -1888,6 +1891,10 @@ struct JNIEnv_ {
 
     jboolean IsVirtualThread(jobject obj) {
         return functions->IsVirtualThread(this, obj);
+    }
+
+    void TagObjectForDRTracking(jobject obj) {
+        return functions->TagObjectForDRTracking(this, obj);
     }
 
 #endif /* __cplusplus */

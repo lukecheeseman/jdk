@@ -3083,6 +3083,10 @@ extern "C" jlong JNICALL jni_GetDirectBufferCapacity(JNIEnv *env, jobject buf)
   return ret;
 }
 
+JNI_ENTRY(void, jni_TagObjectForDRTracking(JNIEnv *env, jobject obj))
+  oopDesc* desc = JNIHandles::resolve_non_null(obj);
+  desc->set_mark(desc->mark().set_age(1));
+JNI_END
 
 JNI_LEAF(jint, jni_GetVersion(JNIEnv *env))
   HOTSPOT_JNI_GETVERSION_ENTRY(env);
@@ -3405,7 +3409,9 @@ struct JNINativeInterface_ jni_NativeInterface = {
 
     // Large UTF8 support
 
-    jni_GetStringUTFLengthAsLong
+    jni_GetStringUTFLengthAsLong,
+
+    jni_TagObjectForDRTracking
 };
 
 
