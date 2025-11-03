@@ -59,7 +59,7 @@ static const int MAX_TABLE_SIZE     = 0x3fffffff;
 
 class ObjectVersionTable : public CHeapObj<mtInternal> {
   ObjectVersionHT _table;
-  VersionNumber _versionCounter;
+  VersionNumber _versionCounter; 
   
 public:
   ObjectVersionTable() :
@@ -87,36 +87,28 @@ using GlobalObjectVersionHT = ResizeableHashTable<ObjectNumber, ObjectVersionTab
 class GlobalVersionHistoryTable: public AllStatic {
 
   static GlobalObjectVersionHT _table;
-  static volatile ObjectNumber _objectNumber;
 
 public:
   static void init() {
     // Empty for now
   }
 
-  // I don't think this should be on the HistoryTable
   static ObjectNumber createObjectNumber() {
-    return Atomic::fetch_then_add(&_objectNumber, 1);
+    MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
+    assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
+
+    ObjectNumber number = _table.number_of_entries() + 1;
+    _table.put(number, new ObjectVersionTable());
+    return number;
   }
 
   static VersionNumber createVersion(ObjectNumber obj, VersionPayload payload) {
     MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
 
-    ObjectVersionTable* objectTable;
-    ObjectVersionTable** table = _table.get(obj);
-    if (table != nullptr) {
-      objectTable = *table;
-    } else {
-      // This is a new object that we are versioning, so we have to create
-      // a new table to track the objects versions
-      ResourceMark rm;
-      objectTable = new ObjectVersionTable();
-      _table.put(obj, objectTable);
-    }
-    
-    assert(objectTable != nullptr, "there is no table!");
-    return objectTable->createVersion(payload);
+    ObjectVersionTable** objectTable = _table.get(obj);
+    assert(objectTable != nullptr, "object number has not been created yet");    
+    return (*objectTable)->createVersion(payload);
   }
 };
 
