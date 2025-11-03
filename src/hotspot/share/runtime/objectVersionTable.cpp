@@ -25,5 +25,5 @@
 
 #include "runtime/objectVersionTable.hpp"
 
-GlobalObjectVersionHT* GlobalVersionHistoryTable::_table = nullptr;
+GlobalObjectVersionHT GlobalVersionHistoryTable::_table(INITIAL_TABLE_SIZE, MAX_TABLE_SIZE);
 volatile ObjectNumber GlobalVersionHistoryTable::_objectNumber = 0;
