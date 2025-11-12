@@ -262,53 +262,29 @@ inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_in_he
 
 // Luke:
 // This function manages storing to the bits of memory outside the heap that 
-// are not managed. This includes static fields and other root-like objects.
-// So, we simply need to tag these stored values with the correct object
-// number so that later on when they are loaded, we can resolve which object
-// number we are trying to find. In the actual object load, then we will need
-// to potentially allocate some memory.
-// We may here need to copy values to the backing versioning management.
+// are not managed. These are the roots.
 template <DecoratorSet decorators, typename BarrierSetT>
 inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_not_in_heap(zpointer* p, oop value) {
   verify_decorators_absent<ON_UNKNOWN_OOP_REF>();
 
-  if (!is_store_barrier_no_keep_alive<decorators>()) {
-    store_barrier_native_without_healing(p);
+  // TODO: Erik what are these for?
+  // if (!is_store_barrier_no_keep_alive<decorators>()) {
+  //   store_barrier_native_without_healing(p);
+  // }
+
+  if (value == nullptr) {
+    // Do we need the store_good?
+    Raw::store(p, value);
+    return;
   }
 
-  // if (the object is valid)
-  //   then it must have an object number
-  //   take the object number and shift 16 to the left and put it in the root
-  //   (slight modification) or low order bit 1 
-  // else
-  //   create object number
+  ObjectNumber objectNumber = GlobalVersionHistoryTable::create_object_number();
+  VersionNumber versionNumber = GlobalVersionHistoryTable::create_object_version(objectNumber, value);
+  
+  JavaThread* jt = JavaThread::current();
+  jt->map_object_number_to_version(objectNumber, versionNumber);
 
-  // where should we be using store_good here ?
-  // should we be storing the oop or the zpointer in the version table ?
-
-  const zpointer o = Raw::template load<zpointer>(p);
-  if (is_valid(o)) {
-    assert((untype(o) & 1) != 0, "Valid object without an object number");
-
-    // There was an object number, so we just update the 
-    ObjectNumber objectNumber = untype(o) >> ZPointerObjectNumberShift;
-    VersionNumber versionNumber = GlobalVersionHistoryTable::create_object_version(objectNumber, value);
-
-    JavaThread* jt = JavaThread::current();
-    jt->map_object_number_to_version(objectNumber, versionNumber);
-
-  } else {
-
-    // There was no object number
-    ObjectNumber objectNumber = GlobalVersionHistoryTable::create_object_number();
-    VersionNumber versionNumber = GlobalVersionHistoryTable::create_object_version(objectNumber, value);
-    
-    JavaThread* jt = JavaThread::current();
-    jt->map_object_number_to_version(objectNumber, versionNumber);
-
-    zpointer zValue = to_zpointer((objectNumber << ZPointerObjectNumberShift) | 1);
-    Raw::store(p, zValue);
-  }
+  Raw::store(p, to_zpointer((objectNumber << ZPointerObjectNumberShift) | 1));
 }
 
 template <DecoratorSet decorators, typename BarrierSetT>
@@ -515,9 +491,7 @@ inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_load_not_in_
   verify_decorators_absent<ON_UNKNOWN_OOP_REF>();
 
   const zpointer o = Raw::template load<zpointer>(p);
-  ResourceMark rm;
   if ((untype(o) & 1) != 0) {
-    // There was an object number (this should become an assert)
     ObjectNumber objectNumber = untype(o) >> ZPointerObjectNumberShift;
 
     // FIXME: We will stop doing this and pick up the latest version for this thread at some point in the future
@@ -535,12 +509,8 @@ inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_load_not_in_
     return *versionPayload;
 
   } else {
-
-    // FIXME: what are we doing here there really shouldn't be anything
-
-    // printf("This path happened\n");
-    const zpointer o = Raw::template load<zpointer>(p);
-    assert_is_valid(o);
+    // otherwise it is a null
+    assert(is_null(o), "it wasn't null");
     return to_oop(load_barrier(p, o)); 
   }
 }
@@ -558,6 +528,9 @@ inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_atomic_cmpxc
 
   store_barrier_native_with_healing(p);
 
+  // Looking for leaky stores
+  ResourceMark rm;
+  printf("new_value: %lx\n", static_cast<uintptr_t>(store_good(new_value)));
   const zpointer o = Raw::atomic_cmpxchg(p, store_good(compare_value), store_good(new_value));
   assert_is_valid(o);
 
@@ -571,6 +544,9 @@ inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_atomic_xchg_
 
   store_barrier_native_with_healing(p);
 
+  // Looking for leaky stores
+  ResourceMark rm;
+  printf("new_value: %lx\n", static_cast<uintptr_t>(store_good(new_value)));
   const zpointer o = Raw::atomic_xchg(p, store_good(new_value));
   assert_is_valid(o);
 

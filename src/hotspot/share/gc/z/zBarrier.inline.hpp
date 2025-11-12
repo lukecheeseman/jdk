@@ -471,8 +471,9 @@ inline zaddress ZBarrier::load_barrier_on_oop_field_preloaded(volatile zpointer*
     ResourceMark rm;
     const size_t objectNumber = untype(o) >> (ZPointerRemappedShift + ZPointerRemappedBits);
 
-    // FIXME: We will stop doing this and pick up the latest version for this thread at some point in the future
     VersionNumber latestVersionNumber = GlobalVersionHistoryTable::get_latest_version_number_for_object_number(objectNumber);
+
+    // FIXME: We will stop doing the above and pick up the latest known version for _this_ thread at some point in the future
     // JavaThread* jt = JavaThread::current();
     // VersionNumber* versionNumber = jt->get_version_number_for_object_number(objectNumber);
     // assert(versionNumber != nullptr, "This thread has never seen this object before");

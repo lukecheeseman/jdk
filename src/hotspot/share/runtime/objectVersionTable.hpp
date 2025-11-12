@@ -117,6 +117,10 @@ public:
 
     ObjectVersionTable** objectTable = _table.get(objectNumber);
     assert(objectTable != nullptr, "object number has not been created yet");    
+
+    // ResourceMark rm;
+    // printf("Version for payload: 0x%p\n", payload);
+
     return (*objectTable)->create_version(payload);
   }
 
@@ -138,6 +142,10 @@ public:
     assert(objectTable != nullptr, "object number has not been created yet");
 
     return (*objectTable)->get_latest_version_number();
+  }
+
+  static void destroy() {
+    printf("Destroying history\n");
   }
 };
 
