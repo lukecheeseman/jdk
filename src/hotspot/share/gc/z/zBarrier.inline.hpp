@@ -467,6 +467,26 @@ inline zaddress ZBarrier::load_barrier_on_oop_field_preloaded(volatile zpointer*
     return addr;
   };
 
+  if ((untype(o) & 1) != 0) {
+    ResourceMark rm;
+    const size_t objectNumber = untype(o) >> (ZPointerRemappedShift + ZPointerRemappedBits);
+
+    // FIXME: We will stop doing this and pick up the latest version for this thread at some point in the future
+    VersionNumber latestVersionNumber = GlobalVersionHistoryTable::get_latest_version_number_for_object_number(objectNumber);
+    // JavaThread* jt = JavaThread::current();
+    // VersionNumber* versionNumber = jt->get_version_number_for_object_number(objectNumber);
+    // assert(versionNumber != nullptr, "This thread has never seen this object before");
+    // VersionPayload* versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, *versionNumber);
+
+    VersionPayload* versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, latestVersionNumber);
+
+
+    assert(versionPayload != nullptr, "This shouldn't be possible");
+    
+    // printf("Found object number: %ld, Oop: %p\n", objectNumber, *oop);
+    return to_zaddress(*versionPayload);
+  }
+
   return barrier(is_load_good_or_null_fast_path, slow_path, color_load_good, p, o);
 }
 

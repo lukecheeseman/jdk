@@ -53,6 +53,8 @@
 #include "utilities/ticks.hpp"
 #endif
 
+#include "runtime/objectVersionTable.hpp"
+
 class AsyncExceptionHandshakeClosure;
 class DeoptResourceMark;
 class InternalOOMEMark;
@@ -1317,6 +1319,44 @@ public:
   static bool has_oop_handles_to_release() {
     return _oop_handle_list != nullptr;
   }
+
+private:
+  ObjectNumberTable _objectNumberTable;
+  VersionNumberTable _versionNumberTable;
+
+public:
+
+  bool map_oop_to_object_number(oop oop, ObjectNumber objectNumber) {
+    return _objectNumberTable.put(oop, objectNumber);
+  }
+
+  bool map_object_number_to_version(ObjectNumber objectNumber, VersionNumber versionNumber) {
+    return _versionNumberTable.put(objectNumber, versionNumber);
+  }
+
+  ObjectNumber* get_object_number_for_oop(oop oop) {
+    return _objectNumberTable.get(oop);
+  }
+
+  VersionNumber* get_version_number_for_object_number(ObjectNumber objectNumber) {
+    return _versionNumberTable.get(objectNumber);
+  }
+
+  /*
+  TODO Luke:
+  step 1:
+  In here, i'm thinking we create some store to keep track of the writes that
+  the thread has made since the last sync checkpoint.
+  */
+private:
+  ThreadLocalAllocBuffer _staging;                 // Luke
+
+public:
+  ThreadLocalAllocBuffer& staging() {
+    return _staging;
+  }
+
+  void initialize_object_version_history();
 };
 
 inline JavaThread* JavaThread::current_or_null() {

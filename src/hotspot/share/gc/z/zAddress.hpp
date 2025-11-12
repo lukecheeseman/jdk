@@ -188,6 +188,9 @@ constexpr int     ZPointerLoadShiftTable[] = {
   ZPointerRemappedShift + 4                      // [8] Remapped11
 };
 
+// ObjectNumber bits
+const size_t      ZPointerObjectNumberShift = ZPointerRemappedShift + ZPointerRemappedBits;
+
 // Barrier metadata masks
 const uintptr_t   ZPointerLoadMetadataMask  = ZPointerRemappedMask;
 const uintptr_t   ZPointerMarkMetadataMask  = ZPointerLoadMetadataMask | ZPointerMarkedMask;

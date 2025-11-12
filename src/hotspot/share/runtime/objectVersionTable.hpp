@@ -31,6 +31,7 @@
 #include "runtime/mutex.hpp"
 #include "runtime/mutexLocker.hpp"
 #include "utilities/hashTable.hpp"
+#include "utilities/resizableHashTable.hpp"
 
 /*
  * The Global Object Version Table maps:
@@ -50,12 +51,12 @@ class VersionNumberKey : AllStatic {
 };
 
 using ObjectVersionHT = ResizeableHashTable<VersionNumber, VersionPayload,
-                                            AnyObj::C_HEAP, mtServiceability,
+                                            AnyObj::C_HEAP, mtInternal,
                                             VersionNumberKey::get_hash,
                                             VersionNumberKey::equals>;
 
-static const int INITIAL_TABLE_SIZE = 1007;
-static const int MAX_TABLE_SIZE     = 0x3fffffff;
+static const int INITIAL_VERSION_TABLE_SIZE = 1007;
+static const int MAX_VERSION_TABLE_SIZE     = 0x3fffffff;
 
 class ObjectVersionTable : public CHeapObj<mtInternal> {
   ObjectVersionHT _table;
@@ -63,12 +64,20 @@ class ObjectVersionTable : public CHeapObj<mtInternal> {
   
 public:
   ObjectVersionTable() :
-    _table(INITIAL_TABLE_SIZE, MAX_TABLE_SIZE),
+    _table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE),
     _versionCounter(0) {}
 
-  VersionNumber createVersion(VersionPayload payload) {
+  VersionNumber create_version(VersionPayload payload) {
     _table.put(_versionCounter, payload);
     return _versionCounter++;
+  }
+
+  VersionNumber get_latest_version_number() {
+    return _versionCounter - 1;
+  }
+
+  VersionPayload* get_payload(VersionNumber versionNumber) {
+    return _table.get(versionNumber);
   }
 };
 
@@ -80,7 +89,7 @@ class ObjectNumberKey : AllStatic {
 };
 
 using GlobalObjectVersionHT = ResizeableHashTable<ObjectNumber, ObjectVersionTable*,
-                                                  AnyObj::C_HEAP, mtServiceability,
+                                                  AnyObj::C_HEAP, mtInternal,
                                                   ObjectNumberKey::get_hash,
                                                   ObjectNumberKey::equals>;
 
@@ -93,7 +102,7 @@ public:
     // Empty for now
   }
 
-  static ObjectNumber createObjectNumber() {
+  static ObjectNumber create_object_number() {
     MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
 
@@ -102,13 +111,101 @@ public:
     return number;
   }
 
-  static VersionNumber createVersion(ObjectNumber obj, VersionPayload payload) {
-    MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
+  static VersionNumber create_object_version(ObjectNumber objectNumber, VersionPayload payload) {
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
+    MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
 
-    ObjectVersionTable** objectTable = _table.get(obj);
+    ObjectVersionTable** objectTable = _table.get(objectNumber);
     assert(objectTable != nullptr, "object number has not been created yet");    
-    return (*objectTable)->createVersion(payload);
+    return (*objectTable)->create_version(payload);
+  }
+
+  static VersionPayload* get_payload_for_object_version(ObjectNumber objectNumber, VersionNumber versionNumber) {
+    assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
+    MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
+
+    ObjectVersionTable** objectTable = _table.get(objectNumber);
+    assert(objectTable != nullptr, "object number has not been created yet");    
+
+    return (*objectTable)->get_payload(versionNumber);
+  }
+
+  static VersionNumber get_latest_version_number_for_object_number(ObjectNumber objectNumber) {
+    assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
+    MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
+
+    ObjectVersionTable** objectTable = _table.get(objectNumber);
+    assert(objectTable != nullptr, "object number has not been created yet");
+
+    return (*objectTable)->get_latest_version_number();
+  }
+};
+
+class OopKey : public CHeapObj<mtInternal> {
+  // WeakHandle _wh; -- the jvmti table uses weak handles, this will likely be important
+  oop _obj; // temporarily hold obj while searching
+ public:
+  OopKey(oop obj);
+  // OopKey(const OopKey& src);
+  OopKey& operator=(const OopKey&) = delete;
+
+  // oop object() const;
+  // oop object_no_keepalive() const;
+  // void release_weak_handle();
+
+  static unsigned get_hash(const OopKey& entry) {
+    assert(entry._obj != nullptr, "must lookup obj to hash");
+    return (unsigned)entry._obj->identity_hash();
+  }
+
+  static bool equals(const OopKey& lhs, const OopKey& rhs) {
+  //   oop lhs_obj = lhs._obj != nullptr ? lhs._obj : lhs.object_no_keepalive();
+  //   oop rhs_obj = rhs._obj != nullptr ? rhs._obj : rhs.object_no_keepalive();
+    // return lhs_obj == rhs_obj;
+    return lhs._obj == rhs._obj;
+  }
+};
+
+// Maps oops to object numbers
+
+using ObjectNumberHT = ResizeableHashTable<OopKey, ObjectNumber,
+                                           AnyObj::C_HEAP, mtServiceability,
+                                           OopKey::get_hash,
+                                           OopKey::equals>;
+
+class ObjectNumberTable : public CHeapObj<mtInternal> {
+  ObjectNumberHT _table;
+
+public:
+
+  ObjectNumberTable(): _table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE) {}
+
+  bool put(oop oop, ObjectNumber objectNumber) {
+    return _table.put(OopKey(oop), objectNumber);
+  }
+
+  ObjectNumber* get(oop oop) {
+    return _table.get(OopKey(oop));
+  }
+};
+
+using VersionNumberHT = ResizeableHashTable<ObjectNumber, VersionNumber,
+                                            AnyObj::C_HEAP, mtServiceability,
+                                            ObjectNumberKey::get_hash,
+                                            ObjectNumberKey::equals>;
+
+class VersionNumberTable : public CHeapObj<mtInternal> {
+  VersionNumberHT _table;
+
+public:
+  VersionNumberTable(): _table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE) {}
+
+  bool put(ObjectNumber objectNumber, VersionNumber versionNumber) {
+    return _table.put(objectNumber, versionNumber);
+  }
+
+  VersionNumber* get(ObjectNumber objectNumber) {
+    return _table.get(objectNumber);
   }
 };
 

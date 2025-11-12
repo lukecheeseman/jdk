@@ -26,7 +26,39 @@
 #include "oops/access.hpp"
 #include "runtime/interfaceSupport.inline.hpp"
 
+// Luke added parentObject
 JRT_LEAF(oopDesc*, ZBarrierSetRuntime::load_barrier_on_oop_field_preloaded(oopDesc* o, oop* p))
+
+  // can we find the object that the field is on?
+  // const markWord word = parentObject->mark();
+  // const int age = word.age();
+  // if (age) {
+  //   printf("Load of field from tracked object: %p\n", parentObject);
+
+  //   // o is the field that we are loading
+  //   // zpointer zo = to_zpointer(o);
+  //   // if (zo.is_remapped()) {
+
+  //   // } else {
+
+  //   // }
+  // }
+
+  // if RRRR bits are zero but the overall pointer is not null, do something else
+  //   we have a poitner ref to a funny pointer, the address bits we can use to enode some identity
+  //   do something
+
+    // At the moment, we are only dealing with our own marked objects
+
+
+      // I want to copy the object into my local TLAB
+      
+      // JavaThread* THREAD = JavaThread::current(); // For exception macros.
+      // Klass* k = desc->klass();
+      // oop new_oop = InstanceKlass::cast(k)->allocate_instance(THREAD);
+    
+
+  // else
   return to_oop(ZBarrier::load_barrier_on_oop_field_preloaded((zpointer*)p, to_zpointer(o)));
 JRT_END
 

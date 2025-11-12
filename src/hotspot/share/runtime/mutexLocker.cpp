@@ -93,6 +93,8 @@ Mutex*   FullGCALot_lock              = nullptr;
 
 Mutex*   tty_lock                     = nullptr;
 
+Mutex*   GlobalVersionHistoryTable_lock = nullptr;
+
 Mutex*   RawMonitor_lock              = nullptr;
 Mutex*   PerfDataMemAlloc_lock        = nullptr;
 Mutex*   PerfDataManager_lock         = nullptr;
@@ -364,6 +366,8 @@ void mutex_init() {
 #endif
   MUTEX_DEFL(JvmtiThreadState_lock          , PaddedMutex  , JvmtiVTMSTransition_lock);   // Used by JvmtiThreadState/JvmtiEventController
   MUTEX_DEFL(SharedDecoder_lock             , PaddedMutex  , NmtVirtualMemory_lock); // Must be lower than NmtVirtualMemory_lock due to MemTracker::print_containing_region
+
+  MUTEX_DEFN(GlobalVersionHistoryTable_lock  , PaddedMutex  , nosafepoint-4);
 
   // Allocate RecursiveMutex
   MultiArray_lock = new RecursiveMutex();

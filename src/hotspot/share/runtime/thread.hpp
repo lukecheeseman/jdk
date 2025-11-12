@@ -40,6 +40,9 @@
 #include "runtime/unhandledOops.hpp"
 #include "utilities/globalDefinitions.hpp"
 #include "utilities/macros.hpp"
+
+#include "runtime/syncObject.hpp"
+
 #if INCLUDE_JFR
 #include "jfr/support/jfrThreadExtension.hpp"
 #endif
@@ -113,6 +116,7 @@ class Thread: public ThreadShadow {
   friend class JVMCIVMStructs;
   friend class JavaThread;
  private:
+
 
   // Current thread is maintained as a thread-local variable
   static THREAD_LOCAL Thread* _thr_current;

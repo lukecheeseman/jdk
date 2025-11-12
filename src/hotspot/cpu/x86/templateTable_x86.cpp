@@ -2274,6 +2274,7 @@ void TemplateTable::resolve_cache_and_index_for_field(int byte_no,
   __ bind(resolved);
 }
 
+
 void TemplateTable::load_resolved_field_entry(Register obj,
                                               Register cache,
                                               Register tos_state,
@@ -2293,6 +2294,7 @@ void TemplateTable::load_resolved_field_entry(Register obj,
 
   // Klass overwrite register
   if (is_static) {
+    // LUKE
     __ movptr(obj, Address(cache, ResolvedFieldEntry::field_holder_offset()));
     const int mirror_offset = in_bytes(Klass::java_mirror_offset());
     __ movptr(obj, Address(obj, mirror_offset));
@@ -2508,6 +2510,7 @@ void TemplateTable::pop_and_check_object(Register r) {
   __ verify_oop(r);
 }
 
+// Luke:::
 void TemplateTable::getfield_or_static(int byte_no, bool is_static, RewriteControl rc) {
   transition(vtos, vtos);
 
@@ -2664,6 +2667,7 @@ void TemplateTable::nofast_getfield(int byte_no) {
   getfield_or_static(byte_no, false, may_not_rewrite);
 }
 
+// THIS ONE
 void TemplateTable::getstatic(int byte_no) {
   getfield_or_static(byte_no, true);
 }
@@ -2741,6 +2745,13 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static, RewriteContr
   //                                              Assembler::StoreStore));
 
   Label notVolatile, Done;
+
+  /*
+    Luke:
+    in x86_64 impl: rsp (native stack pointer) maps exactly to the exdecution stack of the jvm vm state
+    this means hte expectations are, when we call into the vm, we don't have extra grabage on the stack
+    can't push random extra registers etc.
+  */
 
   // Check for volatile store
   __ andl(flags, (1 << ResolvedFieldEntry::is_volatile_shift));

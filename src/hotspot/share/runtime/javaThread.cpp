@@ -520,7 +520,9 @@ JavaThread::JavaThread(MemTag mem_tag) :
 #endif
 
   _lock_stack(this),
-  _om_cache(this) {
+  _om_cache(this),
+  _objectNumberTable()
+  {
   set_jni_functions(jni_functions());
 
 #if INCLUDE_JVMCI
@@ -718,8 +720,20 @@ void JavaThread::pre_run() {
 // by subclasses, instead different subclasses define a different "entry_point"
 // which defines the actual logic for that kind of thread.
 void JavaThread::run() {
+  if (!is_Compiler_thread()) {
+    oop thread_oop = threadObj();
+    const markWord word = thread_oop->mark();
+    const int age = word.age();
+    if (age) {
+      // printf("Starting an interesting thread: %p\n", thread_oop);
+    }
+  }
+  
   // initialize thread-local alloc buffer related fields
   initialize_tlab();
+
+  // initialize the structures for object versioning
+  initialize_object_version_history();  
 
   _stack_overflow_state.create_stack_guard_pages();
 
@@ -815,6 +829,16 @@ static bool is_daemon(oop threadObj) {
 void JavaThread::exit(bool destroy_vm, ExitType exit_type) {
   assert(this == JavaThread::current(), "thread consistency check");
   assert(!is_exiting(), "should not be exiting or terminated already");
+
+  // This is not currently correct - we are catching lots of threads
+  if (!is_Compiler_thread()) {
+    oop thread_oop = threadObj();
+    const markWord word = thread_oop->mark();
+    const int age = word.age();
+    if (age) {
+      // printf("Ending an interesting thread: %p\n", thread_oop);
+    }
+  }
 
   elapsedTimer _timer_exit_phase1;
   elapsedTimer _timer_exit_phase2;
@@ -2269,6 +2293,12 @@ void JavaThread::pretouch_stack() {
                           NOT_AIX(os::vm_page_size()) AIX_ONLY(4096));
     }
   }
+}
+
+void JavaThread::initialize_object_version_history() {
+  ResourceMark rm;
+  // printf("initialized staging for thread: %s\n", name());
+  staging().initialize();
 }
 
 // Deferred OopHandle release support.

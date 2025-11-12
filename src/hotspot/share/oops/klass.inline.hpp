@@ -84,7 +84,9 @@ inline void Klass::set_prototype_header(markWord header) {
 
 // Loading the java_mirror does not keep its holder alive. See Klass::keep_alive().
 inline oop Klass::java_mirror() const {
-  return _java_mirror.resolve();
+  oop mirror = _java_mirror.resolve();
+  // Luke: can i poison the value here?
+  return mirror;
 }
 
 inline oop Klass::java_mirror_no_keepalive() const {

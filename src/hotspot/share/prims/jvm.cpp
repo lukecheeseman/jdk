@@ -2832,6 +2832,14 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
 
   JFR_ONLY(Jfr::on_java_thread_start(thread, native_thread);)
 
+  // oop thatThread = JNIHandles::resolve_non_null(jthread);
+  // const markWord word = thatThread->mark();
+  // const int age = word.age();
+  // if (age) {
+  //   oop thisThread = thread->threadObj();
+  //   printf("Thread %p started thread %p\n", thisThread, thatThread);
+  // }
+
   Thread::start(native_thread);
 
 JVM_END

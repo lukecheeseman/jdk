@@ -117,6 +117,8 @@
 #include "jfr/jfr.hpp"
 #endif
 
+#include "runtime/objectVersionTable.hpp"
+
 // Initialization after module runtime initialization
 void universe_post_module_init();  // must happen after call_initPhase2
 
@@ -900,6 +902,9 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
     log.print_cr("At VM initialization completion:");
     ClassLoader::print_counters(&log);
   }
+
+  // Luke: Initialize the global version history information
+  GlobalVersionHistoryTable::init();
 
   return JNI_OK;
 }

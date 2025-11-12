@@ -5222,6 +5222,8 @@ void MacroAssembler::access_load_at(BasicType type, DecoratorSet decorators, Reg
   } else {
     bs->load_at(this, decorators, type, dst, src, tmp1);
   }
+
+  // TODO: why not resolve the object version load here
 }
 
 void MacroAssembler::access_store_at(BasicType type, DecoratorSet decorators, Address dst, Register val,

@@ -75,6 +75,9 @@ static void set_vector_mask(uintptr_t vector_mask[], uintptr_t mask) {
   }
 }
 
+// LUKE: we want all the bad masks to have 1 in the low order bits (for the interpreter)
+// make it a funny pointer
+
 void ZGlobalsPointers::set_good_masks() {
   ZPointerRemapped = ZPointerRemappedOldMask & ZPointerRemappedYoungMask;
 
@@ -82,9 +85,9 @@ void ZGlobalsPointers::set_good_masks() {
   ZPointerMarkGoodMask  = ZPointerLoadGoodMask | ZPointerMarkedYoung | ZPointerMarkedOld;
   ZPointerStoreGoodMask = ZPointerMarkGoodMask | ZPointerRemembered;
 
-  ZPointerLoadBadMask  = ZPointerLoadGoodMask  ^ ZPointerLoadMetadataMask;
-  ZPointerMarkBadMask  = ZPointerMarkGoodMask  ^ ZPointerMarkMetadataMask;
-  ZPointerStoreBadMask = ZPointerStoreGoodMask ^ ZPointerStoreMetadataMask;
+  ZPointerLoadBadMask  = (ZPointerLoadGoodMask  ^ ZPointerLoadMetadataMask) | 1;
+  ZPointerMarkBadMask  = (ZPointerMarkGoodMask  ^ ZPointerMarkMetadataMask) | 1;
+  ZPointerStoreBadMask = (ZPointerStoreGoodMask ^ ZPointerStoreMetadataMask) | 1;
 
   set_vector_mask(ZPointerVectorLoadBadMask, ZPointerLoadBadMask);
   set_vector_mask(ZPointerVectorStoreBadMask, ZPointerStoreBadMask);

@@ -62,6 +62,17 @@ void Klass::set_java_mirror(Handle m) {
   assert(!m.is_null(), "New mirror should never be null.");
   assert(_java_mirror.is_empty(), "should only be used to initialize mirror");
   _java_mirror = class_loader_data()->add_handle(m);
+
+  // // we going to use the age bit for now to poison the mirror, this means we
+  // // will always take the slow path on the store (once i build that in)
+  // markWord old_mark = m->mark_acquire();
+  // markWord new_mark = old_mark;
+  // while(m->cas_set_mark(new_mark.set_age(0b10), old_mark) != old_mark) {
+  //   new_mark = old_mark;
+  // }
+
+  // // Thought: do we need to poison the mirror, do we not just always fail
+  // // on reading roots ?
 }
 
 bool Klass::is_cloneable() const {

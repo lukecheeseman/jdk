@@ -250,6 +250,24 @@ inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_in_he
   Raw::store_in_heap(p, store_good(value));
 }
 
+// Luke: when we are writing a global root, this is how we're encoding and writing
+// Thought: we are attempting to write a value to a location outside of the heap
+// This means that we must version the value, but we don't actually need to store
+// the value outside of the heap yet because we are mutating a version? Or
+// will we avoid this in the load by creating a local TLAB version which becomes
+// a local, and this out of heap store will only be triggered on the commit
+
+// Either way, firs thing, lets try to bury the object number into the zpointer
+// without the rest of the jvm exploding
+
+// Luke:
+// This function manages storing to the bits of memory outside the heap that 
+// are not managed. This includes static fields and other root-like objects.
+// So, we simply need to tag these stored values with the correct object
+// number so that later on when they are loaded, we can resolve which object
+// number we are trying to find. In the actual object load, then we will need
+// to potentially allocate some memory.
+// We may here need to copy values to the backing versioning management.
 template <DecoratorSet decorators, typename BarrierSetT>
 inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_not_in_heap(zpointer* p, oop value) {
   verify_decorators_absent<ON_UNKNOWN_OOP_REF>();
@@ -258,7 +276,39 @@ inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_not_i
     store_barrier_native_without_healing(p);
   }
 
-  Raw::store(p, store_good(value));
+  // if (the object is valid)
+  //   then it must have an object number
+  //   take the object number and shift 16 to the left and put it in the root
+  //   (slight modification) or low order bit 1 
+  // else
+  //   create object number
+
+  // where should we be using store_good here ?
+  // should we be storing the oop or the zpointer in the version table ?
+
+  const zpointer o = Raw::template load<zpointer>(p);
+  if (is_valid(o)) {
+    assert((untype(o) & 1) != 0, "Valid object without an object number");
+
+    // There was an object number, so we just update the 
+    ObjectNumber objectNumber = untype(o) >> ZPointerObjectNumberShift;
+    VersionNumber versionNumber = GlobalVersionHistoryTable::create_object_version(objectNumber, value);
+
+    JavaThread* jt = JavaThread::current();
+    jt->map_object_number_to_version(objectNumber, versionNumber);
+
+  } else {
+
+    // There was no object number
+    ObjectNumber objectNumber = GlobalVersionHistoryTable::create_object_number();
+    VersionNumber versionNumber = GlobalVersionHistoryTable::create_object_version(objectNumber, value);
+    
+    JavaThread* jt = JavaThread::current();
+    jt->map_object_number_to_version(objectNumber, versionNumber);
+
+    zpointer zValue = to_zpointer((objectNumber << ZPointerObjectNumberShift) | 1);
+    Raw::store(p, zValue);
+  }
 }
 
 template <DecoratorSet decorators, typename BarrierSetT>
@@ -465,14 +515,39 @@ inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_load_not_in_
   verify_decorators_absent<ON_UNKNOWN_OOP_REF>();
 
   const zpointer o = Raw::template load<zpointer>(p);
-  assert_is_valid(o);
-  return to_oop(load_barrier(p, o));
+  ResourceMark rm;
+  if ((untype(o) & 1) != 0) {
+    // There was an object number (this should become an assert)
+    ObjectNumber objectNumber = untype(o) >> ZPointerObjectNumberShift;
+
+    // FIXME: We will stop doing this and pick up the latest version for this thread at some point in the future
+    VersionNumber latestVersionNumber = GlobalVersionHistoryTable::get_latest_version_number_for_object_number(objectNumber);
+    VersionPayload* versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, latestVersionNumber);
+
+    // JavaThread* jt = JavaThread::current();
+    // VersionNumber* versionNumber = jt->get_version_number_for_object_number(objectNumber);
+    // assert(versionNumber != nullptr, "This thread has never seen this object before");
+    // VersionPayload* versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, *versionNumber);
+
+    assert(versionPayload != nullptr, "Failed to find a payload for the pointer");
+
+    // we should probably return a copy
+    return *versionPayload;
+
+  } else {
+
+    // FIXME: what are we doing here there really shouldn't be anything
+
+    // printf("This path happened\n");
+    const zpointer o = Raw::template load<zpointer>(p);
+    assert_is_valid(o);
+    return to_oop(load_barrier(p, o)); 
+  }
 }
 
 template <DecoratorSet decorators, typename BarrierSetT>
 inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_load_not_in_heap(oop* p) {
   verify_decorators_absent<ON_UNKNOWN_OOP_REF>();
-
   return oop_load_not_in_heap((zpointer*)p);
 }
 

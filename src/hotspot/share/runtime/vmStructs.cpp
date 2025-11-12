@@ -596,6 +596,7 @@
   nonstatic_field(ThreadShadow,                _exception_file,                               const char*)                           \
   nonstatic_field(ThreadShadow,                _exception_line,                               int)                                   \
   nonstatic_field(Thread,                      _tlab,                                         ThreadLocalAllocBuffer)                \
+  nonstatic_field(JavaThread,                  _staging,                                      ThreadLocalAllocBuffer)                \
   nonstatic_field(Thread,                      _allocated_bytes,                              jlong)                                 \
   nonstatic_field(JavaThread,                  _lock_stack,                                   LockStack)                             \
   nonstatic_field(LockStack,                   _top,                                          uint32_t)                              \

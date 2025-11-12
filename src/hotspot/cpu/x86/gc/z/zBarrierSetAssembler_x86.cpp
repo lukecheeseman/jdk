@@ -55,6 +55,8 @@
 #undef __
 #define __ masm->
 
+#include "interpreter/interpreterRuntime.hpp"
+
 ZBarrierSetAssembler::ZBarrierSetAssembler()
   : _load_bad_relocations(),
     _store_bad_relocations(),
@@ -270,25 +272,48 @@ static void call_vm(MacroAssembler* masm,
   __ MacroAssembler::call_VM_leaf_base(entry_point, 2);
 }
 
-static void record_load(oopDesc* desc) {
-  if (desc != nullptr) {
-    const markWord word = desc->mark();
-    const int age = word.age();
-    if (age) {
-      printf("Load of tracked object: %p\n", desc);
-    }
-  }
-}
+// static void resolve_and_load_object_version(JavaThread* current) {
+//   if (desc != nullptr) {
 
-static void record_store(oopDesc* desc) {
-  if (desc != nullptr) {
-    const markWord word = desc->mark();
-    const int age = word.age();
-    if (age) {
-      printf("Store to tracked object: %p\n", desc);
-    }
-  }
-}
+//     // At the moment, we are only dealing with our own marked objects
+//     const markWord word = desc->mark();
+//     const int age = word.age();
+//     if (age) {
+
+//       printf("Load of tracked object: %p\n", desc);
+//       // I want to copy the object into my local TLAB
+      
+//       JavaThread* THREAD = JavaThread::current(); // For exception macros.
+//       Klass* k = desc->klass();
+//       oop new_oop = InstanceKlass::cast(k)->allocate_instance(THREAD);
+    
+//     }
+//   }
+
+// static void is_klass_mirror(oopDesc* oop) {
+//   if (!oop) return;
+
+//   const markWord word = oop->mark();
+//   const int age = word.age();
+//   if (age) {
+//     printf("Load of field from tracked object: %p\n", oop);
+
+//     // o is the field that we are loading
+//     // zpointer zo = to_zpointer(o);
+//     // if (zo.is_remapped()) {
+
+//     // } else {
+
+//     // }
+//   }
+// }
+
+//   {
+//     // Call VM
+//     ZRuntimeCallSpill rcs(masm, noreg, ZXMMSpillMode::avx128);
+//     __ movq(c_rarg0, Address(dst, 0).base());
+//     __ MacroAssembler::call_VM_leaf_base(CAST_TO_FN_PTR(address, is_klass_mirror), 1);
+//   }
 
 void ZBarrierSetAssembler::load_at(MacroAssembler* masm,
                                    DecoratorSet decorators,
@@ -375,13 +400,6 @@ void ZBarrierSetAssembler::load_at(MacroAssembler* masm,
   __ movptr(rcx, scratch); // restore rcx
 
   __ bind(done);
-
-  {
-    // Call VM
-    ZRuntimeCallSpill rcs(masm, noreg, ZXMMSpillMode::avx128);
-    __ movq(c_rarg0, (Address(dst, 0)).base());
-    __ MacroAssembler::call_VM_leaf_base(CAST_FROM_FN_PTR(address, record_load), 1);
-  }
 
   // Restore scratch register
   if (tmp1 == noreg) {
@@ -632,12 +650,12 @@ void ZBarrierSetAssembler::store_at(MacroAssembler* masm,
       Label slow;
       Label slow_continuation;
 
-      {
-        // Call VM
-        ZRuntimeCallSpill rcs(masm, noreg, ZXMMSpillMode::avx128);
-        __ movq(c_rarg0, dst.base());
-        __ MacroAssembler::call_VM_leaf(CAST_FROM_FN_PTR(address, record_store), c_rarg0);
-      }
+      // {
+      //   // Call VM
+      //   ZRuntimeCallSpill rcs(masm, noreg, ZXMMSpillMode::avx128);
+      //   __ movq(c_rarg0, dst.base());
+      //   __ MacroAssembler::call_VM_leaf(CAST_FROM_FN_PTR(address, record_store), c_rarg0);
+      // }
 
       store_barrier_fast(masm, dst, src, tmp1, false, false, medium, medium_continuation);
       __ jmp(done);
