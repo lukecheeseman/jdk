@@ -36,12 +36,23 @@
 /*
  * The Global Object Version Table maps:
  *   ObjectNumber -> [ VersionNumber -> ObjectPayload ]
- *
-*/
+ * 
+ * The Thread maps
+ *   ObjectNumber -> VersionNumber ( the version of this object that the thread will read )
+ *   ObjectNumber -> VersionPayload ( the object version payload that this thread is writing and reading )
+ *   VersionPayload -> ObjectNumber  ( the object number that represents this object )
+ */
 
 using ObjectNumber = jlong;
 using VersionNumber = jlong; 
 using VersionPayload = oop;
+
+class ObjectNumberKey : AllStatic {
+  static unsigned get_hash(const ObjectNumber& entry) { return entry; }
+  static bool equals(const ObjectNumber& lhs, const ObjectNumber& rhs) { 
+    return lhs == rhs;
+  }
+};
 
 class VersionNumberKey : AllStatic {
   static unsigned get_hash(const VersionNumber& entry) { return primitive_hash(entry); }
@@ -49,6 +60,46 @@ class VersionNumberKey : AllStatic {
     return lhs == rhs;
   }
 };
+
+class VersionPayloadKey : public CHeapObj<mtInternal> {
+  // WeakHandle _wh; -- the jvmti table uses weak handles, this will likely be important
+  oop _obj; // temporarily hold obj while searching
+ public:
+  VersionPayloadKey(oop obj);
+  // OopKey(const OopKey& src);
+  VersionPayloadKey& operator=(const VersionPayloadKey&) = delete;
+
+  // oop object() const;
+  // oop object_no_keepalive() const;
+  // void release_weak_handle();
+
+  static unsigned get_hash(const VersionPayloadKey& entry) {
+    assert(entry._obj != nullptr, "must lookup obj to hash");
+    return (unsigned)entry._obj->identity_hash();
+  }
+
+  static bool equals(const VersionPayloadKey& lhs, const VersionPayloadKey& rhs) {
+  //   oop lhs_obj = lhs._obj != nullptr ? lhs._obj : lhs.object_no_keepalive();
+  //   oop rhs_obj = rhs._obj != nullptr ? rhs._obj : rhs.object_no_keepalive();
+    // return lhs_obj == rhs_obj;
+    return lhs._obj == rhs._obj;
+  }
+};
+
+using PayloadToObjectNumberTable = ResizeableHashTable<VersionPayloadKey, ObjectNumber,
+                                           AnyObj::C_HEAP, mtInternal,
+                                           VersionPayloadKey::get_hash,
+                                           VersionPayloadKey::equals>;
+
+using ObjectNumberToVersionNumberTable = ResizeableHashTable<ObjectNumber, VersionNumber,
+                                            AnyObj::C_HEAP, mtInternal,
+                                            ObjectNumberKey::get_hash,
+                                            ObjectNumberKey::equals>;
+
+using ObjectNumberToVersionPayloadTable = ResizeableHashTable<ObjectNumber, VersionPayload,
+                                                    AnyObj::C_HEAP, mtInternal,
+                                                    ObjectNumberKey::get_hash,
+                                                    ObjectNumberKey::equals>;
 
 using ObjectVersionHT = ResizeableHashTable<VersionNumber, VersionPayload,
                                             AnyObj::C_HEAP, mtInternal,
@@ -58,12 +109,12 @@ using ObjectVersionHT = ResizeableHashTable<VersionNumber, VersionPayload,
 static const int INITIAL_VERSION_TABLE_SIZE = 1007;
 static const int MAX_VERSION_TABLE_SIZE     = 0x3fffffff;
 
-class ObjectVersionTable : public CHeapObj<mtInternal> {
+class VersionNumbertoVersionPayloadTable : public CHeapObj<mtInternal> {
   ObjectVersionHT _table;
   VersionNumber _versionCounter; 
   
 public:
-  ObjectVersionTable() :
+  VersionNumbertoVersionPayloadTable() :
     _table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE),
     _versionCounter(0) {}
 
@@ -81,14 +132,9 @@ public:
   }
 };
 
-class ObjectNumberKey : AllStatic {
-  static unsigned get_hash(const ObjectNumber& entry) { return entry; }
-  static bool equals(const ObjectNumber& lhs, const ObjectNumber& rhs) { 
-    return lhs == rhs;
-  }
-};
 
-using GlobalObjectVersionHT = ResizeableHashTable<ObjectNumber, ObjectVersionTable*,
+
+using GlobalObjectVersionHT = ResizeableHashTable<ObjectNumber, VersionNumbertoVersionPayloadTable*,
                                                   AnyObj::C_HEAP, mtInternal,
                                                   ObjectNumberKey::get_hash,
                                                   ObjectNumberKey::equals>;
@@ -107,7 +153,7 @@ public:
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
 
     ObjectNumber number = _table.number_of_entries() + 1;
-    _table.put(number, new ObjectVersionTable());
+    _table.put(number, new VersionNumbertoVersionPayloadTable());
     return number;
   }
 
@@ -115,7 +161,7 @@ public:
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
     MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
 
-    ObjectVersionTable** objectTable = _table.get(objectNumber);
+    VersionNumbertoVersionPayloadTable** objectTable = _table.get(objectNumber);
     assert(objectTable != nullptr, "object number has not been created yet");    
 
     // ResourceMark rm;
@@ -128,7 +174,7 @@ public:
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
     MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
 
-    ObjectVersionTable** objectTable = _table.get(objectNumber);
+    VersionNumbertoVersionPayloadTable** objectTable = _table.get(objectNumber);
     assert(objectTable != nullptr, "object number has not been created yet");    
 
     return (*objectTable)->get_payload(versionNumber);
@@ -138,7 +184,7 @@ public:
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
     MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
 
-    ObjectVersionTable** objectTable = _table.get(objectNumber);
+    VersionNumbertoVersionPayloadTable** objectTable = _table.get(objectNumber);
     assert(objectTable != nullptr, "object number has not been created yet");
 
     return (*objectTable)->get_latest_version_number();
@@ -148,94 +194,5 @@ public:
     printf("Destroying history\n");
   }
 };
-
-class OopKey : public CHeapObj<mtInternal> {
-  // WeakHandle _wh; -- the jvmti table uses weak handles, this will likely be important
-  oop _obj; // temporarily hold obj while searching
- public:
-  OopKey(oop obj);
-  // OopKey(const OopKey& src);
-  OopKey& operator=(const OopKey&) = delete;
-
-  // oop object() const;
-  // oop object_no_keepalive() const;
-  // void release_weak_handle();
-
-  static unsigned get_hash(const OopKey& entry) {
-    assert(entry._obj != nullptr, "must lookup obj to hash");
-    return (unsigned)entry._obj->identity_hash();
-  }
-
-  static bool equals(const OopKey& lhs, const OopKey& rhs) {
-  //   oop lhs_obj = lhs._obj != nullptr ? lhs._obj : lhs.object_no_keepalive();
-  //   oop rhs_obj = rhs._obj != nullptr ? rhs._obj : rhs.object_no_keepalive();
-    // return lhs_obj == rhs_obj;
-    return lhs._obj == rhs._obj;
-  }
-};
-
-// Maps oops to object numbers
-
-using ObjectNumberHT = ResizeableHashTable<OopKey, ObjectNumber,
-                                           AnyObj::C_HEAP, mtServiceability,
-                                           OopKey::get_hash,
-                                           OopKey::equals>;
-
-class ObjectNumberTable : public CHeapObj<mtInternal> {
-  ObjectNumberHT _table;
-
-public:
-
-  ObjectNumberTable(): _table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE) {}
-
-  bool put(oop oop, ObjectNumber objectNumber) {
-    return _table.put(OopKey(oop), objectNumber);
-  }
-
-  ObjectNumber* get(oop oop) {
-    return _table.get(OopKey(oop));
-  }
-};
-
-using VersionNumberHT = ResizeableHashTable<ObjectNumber, VersionNumber,
-                                            AnyObj::C_HEAP, mtServiceability,
-                                            ObjectNumberKey::get_hash,
-                                            ObjectNumberKey::equals>;
-
-class VersionNumberTable : public CHeapObj<mtInternal> {
-  VersionNumberHT _table;
-
-public:
-  VersionNumberTable(): _table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE) {}
-
-  bool put(ObjectNumber objectNumber, VersionNumber versionNumber) {
-    return _table.put(objectNumber, versionNumber);
-  }
-
-  VersionNumber* get(ObjectNumber objectNumber) {
-    return _table.get(objectNumber);
-  }
-};
-
-using MappedObjectNumberHT = ResizeableHashTable<ObjectNumber, VersionPayload,
-                                                 AnyObj::C_HEAP, mtServiceability,
-                                                 ObjectNumberKey::get_hash,
-                                                 ObjectNumberKey::equals>;
-
-class MappedObjectNumberTable : public CHeapObj<mtInternal> {
-  MappedObjectNumberHT _table;
-
-public:
-  MappedObjectNumberTable(): _table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE) {}
-
-  bool put(ObjectNumber objectNumber, VersionPayload versionNumber) {
-    return _table.put(objectNumber, versionNumber);
-  }
-
-  VersionPayload* get(ObjectNumber objectNumber) {
-    return _table.get(objectNumber);
-  }
-};
-
 
 #endif

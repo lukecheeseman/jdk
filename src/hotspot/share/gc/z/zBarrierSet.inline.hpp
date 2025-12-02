@@ -510,11 +510,12 @@ inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_load_not_in_
 
     // If we already have a version for this thread, then return that 
     JavaThread* jt = JavaThread::current();
-    // VersionPayload* versionPayload = jt->get_payload_for_mapped_object_number(objectNumber);
-    // if (versionPayload != nullptr) {
-    //   printf("Found an existing version\n");
-    //   return *versionPayload;
-    // }
+    VersionPayload* versionPayload = jt->get_payload_for_mapped_object_number(objectNumber);
+    if (versionPayload != nullptr) {
+      // printf("Found an existing version\n");
+      assert(*versionPayload != nullptr, "nullptr found as versioned payload");
+      return *versionPayload;
+    }
 
     VersionNumber latestVersionNumber = GlobalVersionHistoryTable::get_latest_version_number_for_object_number(objectNumber);
 
@@ -524,7 +525,7 @@ inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_load_not_in_
     // assert(versionNumber != nullptr, "This thread has never seen this object before");
     // VersionPayload* versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, *versionNumber);
 
-    VersionPayload* versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, latestVersionNumber);
+    versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, latestVersionNumber);
     assert(versionPayload != nullptr, "This shouldn't be possible");
     
     zaddress from_addr = to_zaddress(*versionPayload);
@@ -546,7 +547,7 @@ inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_load_not_in_
     // map from_addr to to_addr
     jt->map_object_number_to_current_payload(objectNumber, to_oop(to_addr));
 
-    return to_oop(from_addr);
+    return to_oop(to_addr);
   }
 
   return to_oop(load_barrier(p, o));

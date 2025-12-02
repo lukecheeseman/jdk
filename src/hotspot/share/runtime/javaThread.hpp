@@ -1321,9 +1321,9 @@ public:
   }
 
 private:
-  ObjectNumberTable _objectNumberTable;
-  VersionNumberTable _versionNumberTable;
-  MappedObjectNumberTable _mappedObjectNumberTable;
+  PayloadToObjectNumberTable _objectNumberTable;
+  ObjectNumberToVersionNumberTable _versionNumberTable;
+  ObjectNumberToVersionPayloadTable _mappedObjectNumberTable;
 
 public:
 
@@ -1351,8 +1351,40 @@ public:
     return _mappedObjectNumberTable.get(objectNumber);
   }
 
+public:
+
+  /* when we commit, we need to commit all at once
+     when we read, we can lazily read, but we should make sure any subsequent
+     read comes from the correct point in time. We should just pickup of values
+     from different points in time.
+
+     E.g.
+     t1 commits x = 0, y = 1
+     t2 starts and reads x = 0
+     t1 commits y = 2
+     t2 continues and reads y = 2
+
+     t2 is now looking at an illogical snapshot
+
+     What should the commit history look like then? 
+  */
+
+  void commit_versioned_objects() {
+    struct Commit {
+      // well that's gonna be really not atomic
+      bool do_entry(ObjectNumber& objectNumber, VersionPayload& versionPayload) {
+        GlobalVersionHistoryTable::create_object_version(objectNumber, versionPayload);
+        return true;
+      }
+    } commit_versioned_object;
+
+    // clear the table by committing everything back to the global table
+    _mappedObjectNumberTable.unlink(&commit_versioned_object);
+    printf("commited\n");
+  }
+
 private:
-  ThreadLocalAllocBuffer _staging;                 // Luke
+  ThreadLocalAllocBuffer _staging;                 // Luke - delete this
 
 public:
   ThreadLocalAllocBuffer& staging() {

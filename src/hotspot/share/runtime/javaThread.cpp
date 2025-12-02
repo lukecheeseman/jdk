@@ -521,7 +521,12 @@ JavaThread::JavaThread(MemTag mem_tag) :
 
   _lock_stack(this),
   _om_cache(this),
-  _objectNumberTable()
+
+  // Object versioning data structures
+  _objectNumberTable(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE),
+  _versionNumberTable(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE),
+  _mappedObjectNumberTable(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE)
+  
   {
   set_jni_functions(jni_functions());
 

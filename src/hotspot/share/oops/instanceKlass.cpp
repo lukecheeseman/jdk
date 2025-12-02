@@ -1330,35 +1330,10 @@ void InstanceKlass::initialize_impl(TRAPS) {
 
   // Step 9
   if (!HAS_PENDING_EXCEPTION) {
-    
-    // We want to version the Java Mirror
-    // oop mirror = java_mirror();    
-    // ObjectNumber objectNumber = GlobalVersionHistoryTable::createObjectNumber();
-    // VersionNumber version = GlobalVersionHistoryTable::createVersion(objectNumber, mirror);
-    // This "first" version should be immutable for the rest of time (we should copy the oop now?)
-
-    // our_java_mirror = something that traps to finding the correct one
-
-    // We need to also create a record of oop -> object number
-    // JavaThread* jt = THREAD;
-    // jt->map_oop_to_object_number(mirror, objectNumber);
-
-    // shift the objectNumber << 16 and put in the root (java mirror)
-    // I assume this is at the zgc bit
-
-    // /We need to DFS through the object and version the fields
-    // for (JavaFieldStream fs(this); !fs.done(); fs.next()) {
-    //   // if (fs.index() == index) {
-    //   //  return fs.to_FieldInfo();
-    //   // }
-    // }
-
-    // {
-      // ResourceMark rm;
-      // printf("Klass %s on thread %s (%p) has object number %lu at version %lu\n", name()->as_C_string(), jt->name(), jt, objectNumber, version);
-    // }
-
     // This atomic acts as volatile to communicate a state change across threads
+    // We now need to push out all our local objects as new versions
+
+    jt->commit_versioned_objects();
 
     set_initialization_state_and_notify(fully_initialized, CHECK);
     DEBUG_ONLY(vtable().verify(tty, true);)

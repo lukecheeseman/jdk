@@ -27,8 +27,7 @@
 
 GlobalObjectVersionHT GlobalVersionHistoryTable::_table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE);
 
-
-OopKey::OopKey(oop obj) : _obj(obj) {}
+VersionPayloadKey::VersionPayloadKey(oop obj) : _obj(obj) {}
 
 // OopKey::OopKey(const OopKey& src) {
 //   // move object into WeakHandle when copying into the table
