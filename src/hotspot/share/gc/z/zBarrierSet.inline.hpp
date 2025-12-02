@@ -64,7 +64,7 @@ inline zpointer* ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::field_addr
 template <DecoratorSet decorators, typename BarrierSetT>
 inline zaddress ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::load_barrier(zpointer* p, zpointer o) {
   verify_decorators_absent<ON_UNKNOWN_OOP_REF>();
-
+  
   if (HasDecorator<decorators, AS_NO_KEEPALIVE>::value) {
     if (HasDecorator<decorators, ON_STRONG_OOP_REF>::value) {
       // Load barriers on strong oop refs don't keep objects alive
@@ -267,7 +267,15 @@ template <DecoratorSet decorators, typename BarrierSetT>
 inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_not_in_heap(zpointer* p, oop value) {
   verify_decorators_absent<ON_UNKNOWN_OOP_REF>();
 
-  // TODO: Erik what are these for?
+  // TODO: Erik what are the following methods for - does it do some management
+  // of the previous value at the root?
+
+  // These methods are doing some zgc store barrier uncoloring and healing,
+  // these involves analysing and using the previous value at the zpointer,
+  // but the previous value in the pointer is one of our funny pointers so
+  // there's nothing it can really do?
+
+  // This will need to be fixed once start turning GC on
   // if (!is_store_barrier_no_keep_alive<decorators>()) {
   //   store_barrier_native_without_healing(p);
   // }
@@ -284,7 +292,9 @@ inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_not_i
   JavaThread* jt = JavaThread::current();
   jt->map_object_number_to_version(objectNumber, versionNumber);
 
-  Raw::store(p, to_zpointer((objectNumber << ZPointerObjectNumberShift) | 1));
+  zpointer zValue = to_zpointer((objectNumber << ZPointerObjectNumberShift) | 1);
+
+  Raw::store(p, zValue);
 }
 
 template <DecoratorSet decorators, typename BarrierSetT>
@@ -491,28 +501,55 @@ inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_load_not_in_
   verify_decorators_absent<ON_UNKNOWN_OOP_REF>();
 
   const zpointer o = Raw::template load<zpointer>(p);
+  assert_is_valid(o);
+
   if ((untype(o) & 1) != 0) {
-    ObjectNumber objectNumber = untype(o) >> ZPointerObjectNumberShift;
+    ResourceMark rm;
 
-    // FIXME: We will stop doing this and pick up the latest version for this thread at some point in the future
+    const size_t objectNumber = untype(o) >> (ZPointerRemappedShift + ZPointerRemappedBits);
+
+    // If we already have a version for this thread, then return that 
+    JavaThread* jt = JavaThread::current();
+    // VersionPayload* versionPayload = jt->get_payload_for_mapped_object_number(objectNumber);
+    // if (versionPayload != nullptr) {
+    //   printf("Found an existing version\n");
+    //   return *versionPayload;
+    // }
+
     VersionNumber latestVersionNumber = GlobalVersionHistoryTable::get_latest_version_number_for_object_number(objectNumber);
-    VersionPayload* versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, latestVersionNumber);
 
+    // FIXME: We will stop doing the above and pick up the latest known version for _this_ thread at some point in the future
     // JavaThread* jt = JavaThread::current();
     // VersionNumber* versionNumber = jt->get_version_number_for_object_number(objectNumber);
     // assert(versionNumber != nullptr, "This thread has never seen this object before");
     // VersionPayload* versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, *versionNumber);
 
-    assert(versionPayload != nullptr, "Failed to find a payload for the pointer");
+    VersionPayload* versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, latestVersionNumber);
+    assert(versionPayload != nullptr, "This shouldn't be possible");
+    
+    zaddress from_addr = to_zaddress(*versionPayload);
+    assert(ZHeap::heap()->is_object_live(from_addr), "Should be live");
 
-    // we should probably return a copy
-    return *versionPayload;
+    const size_t size = ZUtils::object_size(from_addr);
+    const zaddress to_addr = ZHeap::heap()->alloc_object(size);
+    if (is_null(to_addr)) {
+      assert(false, "well this isn't good");
+      // Allocation failed
+      return nullptr;
+    }
 
-  } else {
-    // otherwise it is a null
-    assert(is_null(o), "it wasn't null");
-    return to_oop(load_barrier(p, o)); 
+    // Copy object
+    ZUtils::object_copy_disjoint(from_addr, to_addr, size);
+
+    // printf("Found object number: %ld, Oop: %p\n", objectNumber, *versionPayload);
+
+    // map from_addr to to_addr
+    jt->map_object_number_to_current_payload(objectNumber, to_oop(to_addr));
+
+    return to_oop(from_addr);
   }
+
+  return to_oop(load_barrier(p, o));
 }
 
 template <DecoratorSet decorators, typename BarrierSetT>

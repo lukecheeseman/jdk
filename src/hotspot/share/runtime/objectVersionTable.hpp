@@ -217,4 +217,25 @@ public:
   }
 };
 
+using MappedObjectNumberHT = ResizeableHashTable<ObjectNumber, VersionPayload,
+                                                 AnyObj::C_HEAP, mtServiceability,
+                                                 ObjectNumberKey::get_hash,
+                                                 ObjectNumberKey::equals>;
+
+class MappedObjectNumberTable : public CHeapObj<mtInternal> {
+  MappedObjectNumberHT _table;
+
+public:
+  MappedObjectNumberTable(): _table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE) {}
+
+  bool put(ObjectNumber objectNumber, VersionPayload versionNumber) {
+    return _table.put(objectNumber, versionNumber);
+  }
+
+  VersionPayload* get(ObjectNumber objectNumber) {
+    return _table.get(objectNumber);
+  }
+};
+
+
 #endif

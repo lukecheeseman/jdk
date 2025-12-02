@@ -1323,6 +1323,7 @@ public:
 private:
   ObjectNumberTable _objectNumberTable;
   VersionNumberTable _versionNumberTable;
+  MappedObjectNumberTable _mappedObjectNumberTable;
 
 public:
 
@@ -1342,12 +1343,14 @@ public:
     return _versionNumberTable.get(objectNumber);
   }
 
-  /*
-  TODO Luke:
-  step 1:
-  In here, i'm thinking we create some store to keep track of the writes that
-  the thread has made since the last sync checkpoint.
-  */
+  bool map_object_number_to_current_payload(ObjectNumber objectNumber, VersionPayload versionPayload) {
+    return _mappedObjectNumberTable.put(objectNumber, versionPayload);
+  }
+
+  VersionPayload* get_payload_for_mapped_object_number(ObjectNumber objectNumber) {
+    return _mappedObjectNumberTable.get(objectNumber);
+  }
+
 private:
   ThreadLocalAllocBuffer _staging;                 // Luke
 
