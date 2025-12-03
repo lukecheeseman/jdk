@@ -1355,7 +1355,7 @@ public:
     return _object_version_store.get(object_number);
   }
 
-  void commit_local_versioned_objects() {
+  void push_local_versioned_objects() {
     Timestamp timestamp = GlobalVersionHistory::commit_object_versions(&_object_version_store, get_version_timestamp());
     set_version_timestamp(timestamp);
   }

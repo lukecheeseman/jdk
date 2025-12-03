@@ -2830,15 +2830,11 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
               os::native_thread_creation_failed_msg());
   }
 
-  JFR_ONLY(Jfr::on_java_thread_start(thread, native_thread);)
+  // One thread is about to start another thread, it needs to commit everything it knows about to memory
+  thread->push_local_versioned_objects();
+  native_thread->pull_latest_version_history();
 
-  // oop thatThread = JNIHandles::resolve_non_null(jthread);
-  // const markWord word = thatThread->mark();
-  // const int age = word.age();
-  // if (age) {
-  //   oop thisThread = thread->threadObj();
-  //   printf("Thread %p started thread %p\n", thisThread, thatThread);
-  // }
+  JFR_ONLY(Jfr::on_java_thread_start(thread, native_thread);)
 
   Thread::start(native_thread);
 

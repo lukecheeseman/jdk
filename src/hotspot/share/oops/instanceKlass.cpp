@@ -1370,7 +1370,7 @@ void InstanceKlass::set_initialization_state_and_notify(ClassState state, TRAPS)
   // This atomic acts as volatile to communicate a state change across threads
   // We now need to push out all our local objects as new versions
   JavaThread* jt = THREAD;
-  jt->commit_local_versioned_objects();
+  jt->push_local_versioned_objects();
 
   if (h_init_lock() != nullptr) {
     ObjectLocker ol(h_init_lock, THREAD);
