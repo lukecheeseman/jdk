@@ -1322,35 +1322,12 @@ public:
 
 private:
   Timestamp _thread_ts;
+  LocalObjectVersionStore _object_version_store;
 
 public:
   void set_version_timestamp(Timestamp ts) { _thread_ts = ts; } 
 
   Timestamp get_version_timestamp() { return _thread_ts; }
-
-  // bool map_oop_to_object_number(oop oop, ObjectNumber objectNumber) {
-  //   return _objectNumberTable.put(oop, objectNumber);
-  // }
-
-  // bool map_object_number_to_version(ObjectNumber objectNumber, VersionNumber versionNumber) {
-  //   return _versionNumberTable.put(objectNumber, versionNumber);
-  // }
-
-  // ObjectNumber* get_object_number_for_oop(oop oop) {
-  //   return _objectNumberTable.get(oop);
-  // }
-
-  // VersionNumber* get_version_number_for_object_number(ObjectNumber objectNumber) {
-  //   return _versionNumberTable.get(objectNumber);
-  // }
-
-  // bool map_object_number_to_current_payload(ObjectNumber objectNumber, VersionPayload versionPayload) {
-  //   return _mappedObjectNumberTable.put(objectNumber, versionPayload);
-  // }
-
-  // VersionPayload* get_payload_for_mapped_object_number(ObjectNumber objectNumber) {
-  //   return _mappedObjectNumberTable.get(objectNumber);
-  // }
 
 public:
 
@@ -1370,29 +1347,14 @@ public:
      What should the commit history look like then? 
   */
 
-  // void commit_versioned_objects() {
-  //   struct Commit {
-  //     // well that's gonna be really not atomic
-  //     bool do_entry(ObjectNumber& objectNumber, VersionPayload& versionPayload) {
-  //       GlobalVersionHistoryTable::create_object_version(objectNumber, versionPayload);
-  //       return true;
-  //     }
-  //   } commit_versioned_object;
-
-  //   // clear the table by committing everything back to the global table
-  //   _mappedObjectNumberTable.unlink(&commit_versioned_object);
-  //   printf("commited\n");
-  // }
-
-private:
-  ThreadLocalAllocBuffer _staging;                 // Luke - delete this
-
-public:
-  ThreadLocalAllocBuffer& staging() {
-    return _staging;
+  ObjectVersionPayload* get_local_object_version(ObjectNumber object_number) {
+    return nullptr;
   }
 
-  void initialize_object_version_history();
+  bool set_local_object_version(ObjectNumber object_numer, ObjectVersionPayload) {
+    return true;
+  } 
+
 };
 
 inline JavaThread* JavaThread::current_or_null() {

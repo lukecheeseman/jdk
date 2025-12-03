@@ -520,12 +520,10 @@ JavaThread::JavaThread(MemTag mem_tag) :
 #endif
 
   _lock_stack(this),
-  _om_cache(this)
+  _om_cache(this),
 
   // Object versioning data structures
-  // _objectNumberTable(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE),
-  // _versionNumberTable(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE),
-  // _mappedObjectNumberTable(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE)
+  _object_version_store(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE)
   
   {
   set_jni_functions(jni_functions());
@@ -736,9 +734,6 @@ void JavaThread::run() {
   
   // initialize thread-local alloc buffer related fields
   initialize_tlab();
-
-  // initialize the structures for object versioning
-  initialize_object_version_history();  
 
   _stack_overflow_state.create_stack_guard_pages();
 
@@ -2298,12 +2293,6 @@ void JavaThread::pretouch_stack() {
                           NOT_AIX(os::vm_page_size()) AIX_ONLY(4096));
     }
   }
-}
-
-void JavaThread::initialize_object_version_history() {
-  ResourceMark rm;
-  // printf("initialized staging for thread: %s\n", name());
-  staging().initialize();
 }
 
 // Deferred OopHandle release support.

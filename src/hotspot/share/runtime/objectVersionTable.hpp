@@ -27,10 +27,6 @@
 #define SHARE_RUNTIME_OBJECTVERSIONTABLES_HPP
 
 #include "memory/allocation.hpp"
-// #include "runtime/atomic.hpp"
-// #include "runtime/mutex.hpp"
-// #include "runtime/mutexLocker.hpp"
-// #include "utilities/hashTable.hpp"
 #include "utilities/growableArray.hpp"
 #include "utilities/resizableHashTable.hpp"
 
@@ -135,5 +131,10 @@ public:
     return version.version_payload;
   }
 };
+
+using LocalObjectVersionStore = ResizeableHashTable<ObjectNumber, ObjectVersionPayload,
+                                                    AnyObj::C_HEAP, mtInternal,
+                                                    ObjectNumberKey::get_hash,
+                                                    ObjectNumberKey::equals>;
 
 #endif

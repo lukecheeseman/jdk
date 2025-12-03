@@ -28,38 +28,3 @@
 Timestamp GlobalVersionHistory::_global_ts;
 ObjectNumber GlobalVersionHistory::_next_object_number;
 ObjectVersionStore GlobalVersionHistory::_object_version_store(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE);
-
-// GlobalObjectVersionHT GlobalVersionHistoryTable::_table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE);
-
-// VersionPayloadKey::VersionPayloadKey(oop obj) : _obj(obj) {}
-
-// OopKey::OopKey(const OopKey& src) {
-//   // move object into WeakHandle when copying into the table
-//   if (src._obj != nullptr) {
-
-//     // obj was read with AS_NO_KEEPALIVE, or equivalent, like during
-//     // a heap walk.  The object needs to be kept alive when it is published.
-//     Universe::heap()->keep_alive(src._obj);
-
-//     _wh = WeakHandle(JvmtiExport::weak_tag_storage(), src._obj);
-//   } else {
-//     // resizing needs to create a copy.
-//     _wh = src._wh;
-//   }
-//   // obj is always null after a copy.
-//   _obj = nullptr;
-// }
-
-// void OopKey::release_weak_handle() {
-//   // _wh.release(JvmtiExport::weak_tag_storage());
-// // }
-
-// oop OopKey::object() const {
-//   assert(_obj == nullptr, "Must have a handle and not object");
-//   return _wh.resolve();
-// }
-
-// oop OopKey::object_no_keepalive() const {
-//   assert(_obj == nullptr, "Must have a handle and not object");
-//   return _wh.peek();
-// }
