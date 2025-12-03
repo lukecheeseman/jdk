@@ -27,25 +27,50 @@
 #define SHARE_RUNTIME_OBJECTVERSIONTABLES_HPP
 
 #include "memory/allocation.hpp"
-#include "runtime/atomic.hpp"
-#include "runtime/mutex.hpp"
-#include "runtime/mutexLocker.hpp"
-#include "utilities/hashTable.hpp"
+// #include "runtime/atomic.hpp"
+// #include "runtime/mutex.hpp"
+// #include "runtime/mutexLocker.hpp"
+// #include "utilities/hashTable.hpp"
+#include "utilities/growableArray.hpp"
 #include "utilities/resizableHashTable.hpp"
 
-/*
- * The Global Object Version Table maps:
- *   ObjectNumber -> [ VersionNumber -> ObjectPayload ]
- * 
- * The Thread maps
- *   ObjectNumber -> VersionNumber ( the version of this object that the thread will read )
- *   ObjectNumber -> VersionPayload ( the object version payload that this thread is writing and reading )
- *   VersionPayload -> ObjectNumber  ( the object number that represents this object )
- */
+static const int INITIAL_VERSION_TABLE_SIZE = 1007;
+static const int MAX_VERSION_TABLE_SIZE     = 0x3fffffff;
+
+class Timestamp { 
+  uint64_t _epoch; 
+  uint64_t _counter;
+
+public:
+  bool operator==(const Timestamp& other) const {
+    return _epoch == other._epoch && _counter == other._counter;
+  }
+
+  bool operator<(const Timestamp& other) const {
+    return _epoch < other._epoch || (_epoch == other._epoch && _counter < other._counter);
+  }
+
+    // pre-increment
+  Timestamp& operator++() {
+    if (_counter == UINT64_MAX) {
+      _counter = 0;
+      ++_epoch;
+    } else {
+      ++_counter;
+    }
+    return *this;
+  }
+
+  // post-increment
+  Timestamp operator++(int) {
+    Timestamp old = *this;
+    ++(*this);
+    return old;
+  }
+};
 
 using ObjectNumber = jlong;
-using VersionNumber = jlong; 
-using VersionPayload = oop;
+using ObjectVersionPayload = oop;
 
 class ObjectNumberKey : AllStatic {
   static unsigned get_hash(const ObjectNumber& entry) { return entry; }
@@ -54,144 +79,60 @@ class ObjectNumberKey : AllStatic {
   }
 };
 
-class VersionNumberKey : AllStatic {
-  static unsigned get_hash(const VersionNumber& entry) { return primitive_hash(entry); }
-  static bool equals(const VersionNumber& lhs, const VersionNumber& rhs) { 
-    return lhs == rhs;
-  }
+struct ObjectVersion {
+  Timestamp timestamp;
+  ObjectVersionPayload version_payload;
 };
 
-class VersionPayloadKey : public CHeapObj<mtInternal> {
-  // WeakHandle _wh; -- the jvmti table uses weak handles, this will likely be important
-  oop _obj; // temporarily hold obj while searching
- public:
-  VersionPayloadKey(oop obj);
-  // OopKey(const OopKey& src);
-  VersionPayloadKey& operator=(const VersionPayloadKey&) = delete;
+using ObjectVersionHistory = GrowableArrayCHeap<ObjectVersion, mtInternal>;
 
-  // oop object() const;
-  // oop object_no_keepalive() const;
-  // void release_weak_handle();
+using ObjectVersionStore = ResizeableHashTable<ObjectNumber, ObjectVersionHistory*,
+                                               AnyObj::C_HEAP, mtInternal,
+                                               ObjectNumberKey::get_hash,
+                                               ObjectNumberKey::equals>;
 
-  static unsigned get_hash(const VersionPayloadKey& entry) {
-    assert(entry._obj != nullptr, "must lookup obj to hash");
-    return (unsigned)entry._obj->identity_hash();
-  }
-
-  static bool equals(const VersionPayloadKey& lhs, const VersionPayloadKey& rhs) {
-  //   oop lhs_obj = lhs._obj != nullptr ? lhs._obj : lhs.object_no_keepalive();
-  //   oop rhs_obj = rhs._obj != nullptr ? rhs._obj : rhs.object_no_keepalive();
-    // return lhs_obj == rhs_obj;
-    return lhs._obj == rhs._obj;
-  }
-};
-
-using PayloadToObjectNumberTable = ResizeableHashTable<VersionPayloadKey, ObjectNumber,
-                                           AnyObj::C_HEAP, mtInternal,
-                                           VersionPayloadKey::get_hash,
-                                           VersionPayloadKey::equals>;
-
-using ObjectNumberToVersionNumberTable = ResizeableHashTable<ObjectNumber, VersionNumber,
-                                            AnyObj::C_HEAP, mtInternal,
-                                            ObjectNumberKey::get_hash,
-                                            ObjectNumberKey::equals>;
-
-using ObjectNumberToVersionPayloadTable = ResizeableHashTable<ObjectNumber, VersionPayload,
-                                                    AnyObj::C_HEAP, mtInternal,
-                                                    ObjectNumberKey::get_hash,
-                                                    ObjectNumberKey::equals>;
-
-using ObjectVersionHT = ResizeableHashTable<VersionNumber, VersionPayload,
-                                            AnyObj::C_HEAP, mtInternal,
-                                            VersionNumberKey::get_hash,
-                                            VersionNumberKey::equals>;
-
-static const int INITIAL_VERSION_TABLE_SIZE = 1007;
-static const int MAX_VERSION_TABLE_SIZE     = 0x3fffffff;
-
-class VersionNumbertoVersionPayloadTable : public CHeapObj<mtInternal> {
-  ObjectVersionHT _table;
-  VersionNumber _versionCounter; 
-  
-public:
-  VersionNumbertoVersionPayloadTable() :
-    _table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE),
-    _versionCounter(0) {}
-
-  VersionNumber create_version(VersionPayload payload) {
-    _table.put(_versionCounter, payload);
-    return _versionCounter++;
-  }
-
-  VersionNumber get_latest_version_number() {
-    return _versionCounter - 1;
-  }
-
-  VersionPayload* get_payload(VersionNumber versionNumber) {
-    return _table.get(versionNumber);
-  }
-};
-
-
-
-using GlobalObjectVersionHT = ResizeableHashTable<ObjectNumber, VersionNumbertoVersionPayloadTable*,
-                                                  AnyObj::C_HEAP, mtInternal,
-                                                  ObjectNumberKey::get_hash,
-                                                  ObjectNumberKey::equals>;
-
-class GlobalVersionHistoryTable: public AllStatic {
-
-  static GlobalObjectVersionHT _table;
+class GlobalVersionHistory: public AllStatic {
+  static Timestamp _global_ts;
+  static ObjectNumber _next_object_number;
+  static ObjectVersionStore _object_version_store;
 
 public:
-  static void init() {
-    // Empty for now
-  }
+  static void init() {}
 
-  static ObjectNumber create_object_number() {
-    MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
-    assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
-
-    ObjectNumber number = _table.number_of_entries() + 1;
-    _table.put(number, new VersionNumbertoVersionPayloadTable());
-    return number;
-  }
-
-  static VersionNumber create_object_version(ObjectNumber objectNumber, VersionPayload payload) {
+  static ObjectNumber next_object_number() {
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
     MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
 
-    VersionNumbertoVersionPayloadTable** objectTable = _table.get(objectNumber);
-    assert(objectTable != nullptr, "object number has not been created yet");    
-
-    // ResourceMark rm;
-    // printf("Version for payload: 0x%p\n", payload);
-
-    return (*objectTable)->create_version(payload);
+    _object_version_store.put(_next_object_number, new ObjectVersionHistory());
+    return _next_object_number++;
   }
 
-  static VersionPayload* get_payload_for_object_version(ObjectNumber objectNumber, VersionNumber versionNumber) {
+  static Timestamp commit_object_version(ObjectNumber object_number, ObjectVersionPayload payload) {
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
     MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
 
-    VersionNumbertoVersionPayloadTable** objectTable = _table.get(objectNumber);
-    assert(objectTable != nullptr, "object number has not been created yet");    
+    ObjectVersionHistory** history = _object_version_store.get(object_number);
+    assert(history != nullptr, "object number has not been created yet");    
 
-    return (*objectTable)->get_payload(versionNumber);
+    ObjectVersion object_version{_global_ts++, payload};
+    (*history)->append(object_version);
+    return _global_ts;
   }
 
-  static VersionNumber get_latest_version_number_for_object_number(ObjectNumber objectNumber) {
+  static ObjectVersionPayload get_object_version_for_timestamp(ObjectNumber object_number, Timestamp timestamp) {
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
     MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
 
-    VersionNumbertoVersionPayloadTable** objectTable = _table.get(objectNumber);
-    assert(objectTable != nullptr, "object number has not been created yet");
+    ObjectVersionHistory** history = _object_version_store.get(object_number);
+    assert(history != nullptr, "object number has not been created yet");  
 
-    return (*objectTable)->get_latest_version_number();
-  }
+    int i = (*history)->find_from_end_if([&](const ObjectVersion& e) {
+      return e.timestamp == timestamp || e.timestamp < timestamp; // fix the rel operators
+    });
+    assert(i != -1, "object history does not contain an object for this timestamp");
 
-  static void destroy() {
-    printf("Destroying history\n");
+    ObjectVersion version = (*history)->at(i);
+    return version.version_payload;
   }
 };
 

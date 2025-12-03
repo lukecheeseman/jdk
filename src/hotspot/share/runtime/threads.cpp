@@ -904,7 +904,7 @@ jint Threads::create_vm(JavaVMInitArgs* args, bool* canTryAgain) {
   }
 
   // Luke: Initialize the global version history information
-  GlobalVersionHistoryTable::init();
+  GlobalVersionHistory::init();
 
   return JNI_OK;
 }

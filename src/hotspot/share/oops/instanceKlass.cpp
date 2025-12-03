@@ -1333,7 +1333,7 @@ void InstanceKlass::initialize_impl(TRAPS) {
     // This atomic acts as volatile to communicate a state change across threads
     // We now need to push out all our local objects as new versions
 
-    jt->commit_versioned_objects();
+    // jt->commit_versioned_objects();
 
     set_initialization_state_and_notify(fully_initialized, CHECK);
     DEBUG_ONLY(vtable().verify(tty, true);)

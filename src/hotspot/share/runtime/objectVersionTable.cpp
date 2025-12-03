@@ -25,9 +25,13 @@
 
 #include "runtime/objectVersionTable.hpp"
 
-GlobalObjectVersionHT GlobalVersionHistoryTable::_table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE);
+Timestamp GlobalVersionHistory::_global_ts;
+ObjectNumber GlobalVersionHistory::_next_object_number;
+ObjectVersionStore GlobalVersionHistory::_object_version_store(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE);
 
-VersionPayloadKey::VersionPayloadKey(oop obj) : _obj(obj) {}
+// GlobalObjectVersionHT GlobalVersionHistoryTable::_table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE);
+
+// VersionPayloadKey::VersionPayloadKey(oop obj) : _obj(obj) {}
 
 // OopKey::OopKey(const OopKey& src) {
 //   // move object into WeakHandle when copying into the table

@@ -468,49 +468,40 @@ inline zaddress ZBarrier::load_barrier_on_oop_field_preloaded(volatile zpointer*
   };
 
   if ((untype(o) & 1) != 0) {
-    ResourceMark rm;
+  //   ResourceMark rm;
 
     const size_t objectNumber = untype(o) >> (ZPointerRemappedShift + ZPointerRemappedBits);
 
     // If we already have a version for this thread, then return that 
     JavaThread* jt = JavaThread::current();
-    VersionPayload* versionPayload = jt->get_payload_for_mapped_object_number(objectNumber);
-    if (versionPayload != nullptr) {
-      assert(*versionPayload != nullptr, "nullptr found as versioned payload");
-      return to_zaddress(*versionPayload);
-    }
+  //   VersionPayload* versionPayload = jt->get_payload_for_mapped_object_number(objectNumber);
+  //   if (versionPayload != nullptr) {
+  //     // printf("Found an existing version\n");
+  //     assert(*versionPayload != nullptr, "nullptr found as versioned payload");
+  //     return *versionPayload;
+  //   }
 
-    VersionNumber latestVersionNumber = GlobalVersionHistoryTable::get_latest_version_number_for_object_number(objectNumber);
+    ObjectVersionPayload version = GlobalVersionHistory::get_object_version_for_timestamp(objectNumber, jt->get_version_timestamp());    
+    zaddress from_addr = to_zaddress(version);
+  //   assert(ZHeap::heap()->is_object_live(from_addr), "Should be live");
 
-    // FIXME: We will stop doing the above and pick up the latest known version for _this_ thread at some point in the future
-    // JavaThread* jt = JavaThread::current();
-    // VersionNumber* versionNumber = jt->get_version_number_for_object_number(objectNumber);
-    // assert(versionNumber != nullptr, "This thread has never seen this object before");
-    // VersionPayload* versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, *versionNumber);
+  //   const size_t size = ZUtils::object_size(from_addr);
+  //   const zaddress to_addr = ZHeap::heap()->alloc_object(size);
+  //   if (is_null(to_addr)) {
+  //     assert(false, "well this isn't good");
+  //     // Allocation failed
+  //     return nullptr;
+  //   }
 
-    versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, latestVersionNumber);
-    assert(versionPayload != nullptr, "This shouldn't be possible");
-    
-    zaddress from_addr = to_zaddress(*versionPayload);
-    assert(ZHeap::heap()->is_object_live(from_addr), "Should be live");
+  //   // Copy object
+  //   ZUtils::object_copy_disjoint(from_addr, to_addr, size);
 
-    const size_t size = ZUtils::object_size(from_addr);
-    const zaddress to_addr = ZHeap::heap()->alloc_object(size);
-    if (is_null(to_addr)) {
-      assert(false, "well this isn't good");
-      // Allocation failed
-      return zaddress::null;
-    }
+  //   // printf("Found object number: %ld, Oop: %p\n", objectNumber, *versionPayload);
 
-    // Copy object
-    ZUtils::object_copy_disjoint(from_addr, to_addr, size);
+  //   // map from_addr to to_addr
+  //   jt->map_object_number_to_current_payload(objectNumber, to_oop(to_addr));
 
-    // printf("Found object number: %ld, Oop: %p\n", objectNumber, *versionPayload);
-
-    // map from_addr to to_addr
-    jt->map_object_number_to_current_payload(objectNumber, to_oop(to_addr));
-
-    return to_addr;
+    return from_addr;
   }
 
   return barrier(is_load_good_or_null_fast_path, slow_path, color_load_good, p, o);

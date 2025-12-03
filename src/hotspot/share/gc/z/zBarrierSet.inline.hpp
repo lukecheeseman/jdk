@@ -267,6 +267,12 @@ template <DecoratorSet decorators, typename BarrierSetT>
 inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_not_in_heap(zpointer* p, oop value) {
   verify_decorators_absent<ON_UNKNOWN_OOP_REF>();
 
+  // if (!is_store_barrier_no_keep_alive<decorators>()) {
+  //   store_barrier_native_without_healing(p);
+  // }
+
+  // Raw::store(p, store_good(value));
+
   // TODO: Erik what are the following methods for - does it do some management
   // of the previous value at the root?
 
@@ -286,11 +292,12 @@ inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_not_i
     return;
   }
 
-  ObjectNumber objectNumber = GlobalVersionHistoryTable::create_object_number();
-  VersionNumber versionNumber = GlobalVersionHistoryTable::create_object_version(objectNumber, value);
+  // Should this commit, constitute commiting everything the thread has
+  ObjectNumber objectNumber = GlobalVersionHistory::next_object_number();
+  Timestamp global_ts = GlobalVersionHistory::commit_object_version(objectNumber, value);
   
   JavaThread* jt = JavaThread::current();
-  jt->map_object_number_to_version(objectNumber, versionNumber);
+  jt->set_version_timestamp(global_ts);
 
   zpointer zValue = to_zpointer((objectNumber << ZPointerObjectNumberShift) | 1);
 
@@ -500,54 +507,48 @@ template <DecoratorSet decorators, typename BarrierSetT>
 inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_load_not_in_heap(zpointer* p) {
   verify_decorators_absent<ON_UNKNOWN_OOP_REF>();
 
+  // const zpointer o = Raw::template load<zpointer>(p);
+  // assert_is_valid(o);
+  // return to_oop(load_barrier(p, o));
+
   const zpointer o = Raw::template load<zpointer>(p);
   assert_is_valid(o);
 
   if ((untype(o) & 1) != 0) {
-    ResourceMark rm;
+  //   ResourceMark rm;
 
     const size_t objectNumber = untype(o) >> (ZPointerRemappedShift + ZPointerRemappedBits);
 
     // If we already have a version for this thread, then return that 
     JavaThread* jt = JavaThread::current();
-    VersionPayload* versionPayload = jt->get_payload_for_mapped_object_number(objectNumber);
-    if (versionPayload != nullptr) {
-      // printf("Found an existing version\n");
-      assert(*versionPayload != nullptr, "nullptr found as versioned payload");
-      return *versionPayload;
-    }
+  //   VersionPayload* versionPayload = jt->get_payload_for_mapped_object_number(objectNumber);
+  //   if (versionPayload != nullptr) {
+  //     // printf("Found an existing version\n");
+  //     assert(*versionPayload != nullptr, "nullptr found as versioned payload");
+  //     return *versionPayload;
+  //   }
 
-    VersionNumber latestVersionNumber = GlobalVersionHistoryTable::get_latest_version_number_for_object_number(objectNumber);
+    ObjectVersionPayload version = GlobalVersionHistory::get_object_version_for_timestamp(objectNumber, jt->get_version_timestamp());    
+    zaddress from_addr = to_zaddress(version);
+  //   assert(ZHeap::heap()->is_object_live(from_addr), "Should be live");
 
-    // FIXME: We will stop doing the above and pick up the latest known version for _this_ thread at some point in the future
-    // JavaThread* jt = JavaThread::current();
-    // VersionNumber* versionNumber = jt->get_version_number_for_object_number(objectNumber);
-    // assert(versionNumber != nullptr, "This thread has never seen this object before");
-    // VersionPayload* versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, *versionNumber);
+  //   const size_t size = ZUtils::object_size(from_addr);
+  //   const zaddress to_addr = ZHeap::heap()->alloc_object(size);
+  //   if (is_null(to_addr)) {
+  //     assert(false, "well this isn't good");
+  //     // Allocation failed
+  //     return nullptr;
+  //   }
 
-    versionPayload = GlobalVersionHistoryTable::get_payload_for_object_version(objectNumber, latestVersionNumber);
-    assert(versionPayload != nullptr, "This shouldn't be possible");
-    
-    zaddress from_addr = to_zaddress(*versionPayload);
-    assert(ZHeap::heap()->is_object_live(from_addr), "Should be live");
+  //   // Copy object
+  //   ZUtils::object_copy_disjoint(from_addr, to_addr, size);
 
-    const size_t size = ZUtils::object_size(from_addr);
-    const zaddress to_addr = ZHeap::heap()->alloc_object(size);
-    if (is_null(to_addr)) {
-      assert(false, "well this isn't good");
-      // Allocation failed
-      return nullptr;
-    }
+  //   // printf("Found object number: %ld, Oop: %p\n", objectNumber, *versionPayload);
 
-    // Copy object
-    ZUtils::object_copy_disjoint(from_addr, to_addr, size);
+  //   // map from_addr to to_addr
+  //   jt->map_object_number_to_current_payload(objectNumber, to_oop(to_addr));
 
-    // printf("Found object number: %ld, Oop: %p\n", objectNumber, *versionPayload);
-
-    // map from_addr to to_addr
-    jt->map_object_number_to_current_payload(objectNumber, to_oop(to_addr));
-
-    return to_oop(to_addr);
+    return to_oop(from_addr);
   }
 
   return to_oop(load_barrier(p, o));
