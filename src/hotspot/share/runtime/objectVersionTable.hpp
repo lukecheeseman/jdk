@@ -46,6 +46,11 @@ public:
     return _epoch < other._epoch || (_epoch == other._epoch && _counter < other._counter);
   }
 
+  bool operator!=(const Timestamp& other) const { return !(*this == other); }
+  bool operator<=(const Timestamp& other) const { return *this < other || *this == other; }
+  bool operator>(const Timestamp& other) const { return other < *this; }
+  bool operator>=(const Timestamp& other) const { return other < *this || *this == other; }
+
     // pre-increment
   Timestamp& operator++() {
     if (_counter == UINT64_MAX) {
@@ -75,6 +80,11 @@ class ObjectNumberKey : AllStatic {
   }
 };
 
+using LocalObjectVersionStore = ResizeableHashTable<ObjectNumber, ObjectVersionPayload,
+                                                    AnyObj::C_HEAP, mtInternal,
+                                                    ObjectNumberKey::get_hash,
+                                                    ObjectNumberKey::equals>;
+
 struct ObjectVersion {
   Timestamp timestamp;
   ObjectVersionPayload version_payload;
@@ -82,15 +92,15 @@ struct ObjectVersion {
 
 using ObjectVersionHistory = GrowableArrayCHeap<ObjectVersion, mtInternal>;
 
-using ObjectVersionStore = ResizeableHashTable<ObjectNumber, ObjectVersionHistory*,
-                                               AnyObj::C_HEAP, mtInternal,
-                                               ObjectNumberKey::get_hash,
-                                               ObjectNumberKey::equals>;
+using GlobalObjectVersionStore = ResizeableHashTable<ObjectNumber, ObjectVersionHistory*,
+                                                    AnyObj::C_HEAP, mtInternal,
+                                                    ObjectNumberKey::get_hash,
+                                                    ObjectNumberKey::equals>;
 
 class GlobalVersionHistory: public AllStatic {
   static Timestamp _global_ts;
   static ObjectNumber _next_object_number;
-  static ObjectVersionStore _object_version_store;
+  static GlobalObjectVersionStore _object_version_store;
 
 public:
   static void init() {}
@@ -110,12 +120,61 @@ public:
     ObjectVersionHistory** history = _object_version_store.get(object_number);
     assert(history != nullptr, "object number has not been created yet");    
 
-    ObjectVersion object_version{_global_ts++, payload};
+    Timestamp next_timestamp = ++_global_ts;
+
+    ObjectVersion object_version{next_timestamp, payload};
     (*history)->append(object_version);
-    return _global_ts;
+    return next_timestamp;
   }
 
-  static ObjectVersionPayload get_object_version_for_timestamp(ObjectNumber object_number, Timestamp timestamp) {
+  static Timestamp commit_object_versions(LocalObjectVersionStore* local_object_store, const Timestamp& local_timestamp) {
+    assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
+    MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);  
+    
+    Timestamp next_timestamp = ++_global_ts;
+
+    struct {
+      Timestamp next_timestamp;
+      Timestamp local_timestamp;
+
+      bool do_entry(ObjectNumber& object_number, ObjectVersionPayload& object_payload) {
+        ObjectVersionHistory** history = _object_version_store.get(object_number);
+        assert(history != nullptr, "object number has not been created yet");    
+
+        ObjectVersion version = (*history)->last();
+        assert(version.timestamp <= local_timestamp, "conflict: newer object version already existing in global version store");
+
+        ObjectVersion object_version{next_timestamp, object_payload};
+        (*history)->append(object_version);
+
+        return true;
+      }
+    } function{next_timestamp, local_timestamp};
+    local_object_store->unlink(&function);
+
+    return next_timestamp;
+  }
+
+  static Timestamp pull_latest_or_error(const LocalObjectVersionStore* local_object_store, const Timestamp& local_timestamp) {
+    assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
+    MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
+
+    Timestamp current_timestamp = _global_ts;
+
+    local_object_store->iterate_all([&](const ObjectNumber& object_number, const ObjectVersionPayload& object_payload){
+      ObjectVersionHistory** history = _object_version_store.get(object_number);
+      assert(history != nullptr, "object number has not been created yet");    
+
+      ObjectVersion version = (*history)->last();
+      assert(version.timestamp <= local_timestamp, "conflict: newer object version already existing in global version store");
+
+      return true;
+    });
+
+    return current_timestamp;
+  }
+
+  static ObjectVersionPayload get_object_version_for_timestamp(ObjectNumber object_number, const Timestamp& timestamp) {
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
     MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
 
@@ -123,7 +182,7 @@ public:
     assert(history != nullptr, "object number has not been created yet");  
 
     int i = (*history)->find_from_end_if([&](const ObjectVersion& e) {
-      return e.timestamp == timestamp || e.timestamp < timestamp; // fix the rel operators
+      return e.timestamp <= timestamp;
     });
     assert(i != -1, "object history does not contain an object for this timestamp");
 
@@ -131,10 +190,5 @@ public:
     return version.version_payload;
   }
 };
-
-using LocalObjectVersionStore = ResizeableHashTable<ObjectNumber, ObjectVersionPayload,
-                                                    AnyObj::C_HEAP, mtInternal,
-                                                    ObjectNumberKey::get_hash,
-                                                    ObjectNumberKey::equals>;
 
 #endif

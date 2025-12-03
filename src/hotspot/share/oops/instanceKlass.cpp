@@ -1330,11 +1330,6 @@ void InstanceKlass::initialize_impl(TRAPS) {
 
   // Step 9
   if (!HAS_PENDING_EXCEPTION) {
-    // This atomic acts as volatile to communicate a state change across threads
-    // We now need to push out all our local objects as new versions
-
-    // jt->commit_versioned_objects();
-
     set_initialization_state_and_notify(fully_initialized, CHECK);
     DEBUG_ONLY(vtable().verify(tty, true);)
     CompilationPolicy::replay_training_at_init(this, THREAD);
@@ -1371,6 +1366,12 @@ void InstanceKlass::initialize_impl(TRAPS) {
 
 void InstanceKlass::set_initialization_state_and_notify(ClassState state, TRAPS) {
   Handle h_init_lock(THREAD, init_lock());
+  
+  // This atomic acts as volatile to communicate a state change across threads
+  // We now need to push out all our local objects as new versions
+  JavaThread* jt = THREAD;
+  jt->commit_local_versioned_objects();
+
   if (h_init_lock() != nullptr) {
     ObjectLocker ol(h_init_lock, THREAD);
     set_init_thread(nullptr); // reset _init_thread before changing _init_state
