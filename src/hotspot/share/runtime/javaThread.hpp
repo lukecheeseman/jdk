@@ -1347,13 +1347,13 @@ public:
      What should the commit history look like then? 
   */
 
-  ObjectVersionPayload* get_local_object_version(ObjectNumber object_number) {
-    return nullptr;
-  }
-
-  bool set_local_object_version(ObjectNumber object_numer, ObjectVersionPayload) {
-    return true;
+  bool set_local_object_version(ObjectNumber object_number, ObjectVersionPayload object_payload) {
+    return _object_version_store.put(object_number, object_payload);
   } 
+
+  ObjectVersionPayload* get_local_object_version(ObjectNumber object_number) {
+    return _object_version_store.get(object_number);
+  }
 
 };
 

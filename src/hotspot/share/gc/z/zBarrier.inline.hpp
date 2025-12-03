@@ -496,7 +496,7 @@ inline zaddress ZBarrier::load_barrier_on_oop_field_preloaded(volatile zpointer*
     // for this concurrent unit
     jt->set_local_object_version(object_number, to_oop(to_addr));
 
-    return from_addr;
+    return to_addr;
   }
 
   return barrier(is_load_good_or_null_fast_path, slow_path, color_load_good, p, o);

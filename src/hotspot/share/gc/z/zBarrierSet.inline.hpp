@@ -537,9 +537,10 @@ inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_load_not_in_
 
     // Record that this thread has created a working copy of this object number
     // for this concurrent unit
+    oop to_addr_oop = to_oop(to_addr);
     jt->set_local_object_version(object_number, to_oop(to_addr));
 
-    return to_oop(from_addr);
+    return to_addr_oop;
   }
 
   return to_oop(load_barrier(p, o));
