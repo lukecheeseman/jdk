@@ -2510,6 +2510,16 @@ void TemplateTable::pop_and_check_object(Register r) {
   __ verify_oop(r);
 }
 
+static void push() {
+  JavaThread* current = JavaThread::current();
+  current->push_to_global_version_store();
+}
+
+static void pull() {
+  JavaThread* current = JavaThread::current();
+  current->pull_from_global_version_store();
+}
+
 // Luke:::
 void TemplateTable::getfield_or_static(int byte_no, bool is_static, RewriteControl rc) {
   transition(vtos, vtos);
@@ -2519,7 +2529,7 @@ void TemplateTable::getfield_or_static(int byte_no, bool is_static, RewriteContr
   const Register index = rdx;
   const Register off   = rbx;
   const Register tos_state   = rax;
-  const Register flags = rdx;
+  const Register flags = r8;
   const Register bc    = c_rarg3; // uses same reg as obj, so don't mix them
 
   resolve_cache_and_index_for_field(byte_no, cache, index);
@@ -2530,7 +2540,7 @@ void TemplateTable::getfield_or_static(int byte_no, bool is_static, RewriteContr
 
   const Address field(obj, off, Address::times_1, 0*wordSize);
 
-  Label Done, notByte, notBool, notInt, notShort, notChar, notLong, notFloat, notObj;
+  Label Done, notByte, notBool, notInt, notShort, notChar, notLong, notFloat, notObj, notVolatile;
 
   // Make sure we don't need to mask edx after the above shift
   assert(btos == 0, "change code, btos != 0");
@@ -2654,6 +2664,18 @@ void TemplateTable::getfield_or_static(int byte_no, bool is_static, RewriteContr
 #endif
 
   __ bind(Done);
+
+  // Check for volatile store
+  __ andl(flags, (1 << ResolvedFieldEntry::is_volatile_shift));
+  __ testl(flags, flags);
+  __ jcc(Assembler::zero, notVolatile);
+
+  __ push_ptr(rax);  // save object pointer before call_VM() clobbers it
+  __ call_VM(noreg, CAST_FROM_FN_PTR(address, pull));
+  __ pop_ptr(rax); // restore object pointer
+
+  __ bind(notVolatile);
+
   // [jk] not needed currently
   // volatile_barrier(Assembler::Membar_mask_bits(Assembler::LoadLoad |
   //                                              Assembler::LoadStore));
@@ -2759,6 +2781,11 @@ void TemplateTable::putfield_or_static(int byte_no, bool is_static, RewriteContr
   __ jcc(Assembler::zero, notVolatile);
 
   putfield_or_static_helper(byte_no, is_static, rc, obj, off, tos_state);
+
+  __ push_ptr(rax);  // save object pointer before call_VM() clobbers it
+  __ call_VM(noreg, CAST_FROM_FN_PTR(address, push));
+  __ pop_ptr(rax); // restore object pointer
+
   volatile_barrier(Assembler::Membar_mask_bits(Assembler::StoreLoad |
                                                Assembler::StoreStore));
   __ jmp(Done);

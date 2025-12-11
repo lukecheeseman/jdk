@@ -2831,8 +2831,8 @@ JVM_ENTRY(void, JVM_StartThread(JNIEnv* env, jobject jthread))
   }
 
   // One thread is about to start another thread, it needs to commit everything it knows about to memory
-  thread->push_local_versioned_objects();
-  native_thread->pull_latest_version_history();
+  JavaThread::current()->push_to_global_version_store();
+  native_thread->pull_from_global_version_store();
 
   JFR_ONLY(Jfr::on_java_thread_start(thread, native_thread);)
 

@@ -1007,7 +1007,7 @@ enum LockingMode {
   // Legacy stack-locking, with monitors as 2nd tier
   LM_LEGACY      = 1,
   // New lightweight locking, with monitors as 2nd tier
-  LM_LIGHTWEIGHT = 2
+  LM_LIGHTWEIGHT = 2,
 };
 
 extern const int LockingMode;

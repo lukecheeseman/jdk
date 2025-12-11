@@ -29,6 +29,7 @@
 #include "memory/allocation.hpp"
 #include "utilities/growableArray.hpp"
 #include "utilities/resizableHashTable.hpp"
+#include "oops/access.hpp"
 
 static const int INITIAL_VERSION_TABLE_SIZE = 1007;
 static const int MAX_VERSION_TABLE_SIZE     = 0x3fffffff;
@@ -80,10 +81,73 @@ class ObjectNumberKey : AllStatic {
   }
 };
 
-using LocalObjectVersionStore = ResizeableHashTable<ObjectNumber, ObjectVersionPayload,
-                                                    AnyObj::C_HEAP, mtInternal,
-                                                    ObjectNumberKey::get_hash,
-                                                    ObjectNumberKey::equals>;
+class ObjectVersionPayloadKey : AllStatic {
+  static unsigned get_hash(const ObjectVersionPayload& entry) { return (int)cast_from_oop<uint64_t>(entry); }
+  static bool equals(const ObjectVersionPayload& lhs, const ObjectVersionPayload& rhs) { 
+    return lhs == rhs;
+  }
+};
+
+using LocalObjectVersionStoreTable = ResizeableHashTable<ObjectNumber, ObjectVersionPayload,
+                                                        AnyObj::C_HEAP, mtInternal,
+                                                        ObjectNumberKey::get_hash,
+                                                        ObjectNumberKey::equals>;
+
+using LocalObjectVersionStoreReverseTable = ResizeableHashTable<ObjectVersionPayload, ObjectNumber,
+                                                                AnyObj::C_HEAP, mtInternal,
+                                                                ObjectVersionPayloadKey::get_hash,
+                                                                ObjectVersionPayloadKey::equals>;
+class LocalObjectVersionStore {
+  friend class GlobalVersionHistory;
+
+  Timestamp _timestamp;
+
+  LocalObjectVersionStoreTable _table;
+  LocalObjectVersionStoreReverseTable _reverse_table;
+
+  template <typename ITER>
+  void unlink_forward_map(ITER* iter) {
+    _table.unlink(iter);
+  }
+
+  template <typename ITER>
+  void unlink_reverse_map(ITER* iter) {
+    _reverse_table.unlink(iter);
+  }
+
+  template <typename Function>
+  void iterate_all(Function iter) const {
+    _table.iterate_all(iter);
+  }
+
+  unsigned number_of_entries() const {
+    return _table.number_of_entries();
+  }
+
+public:
+  LocalObjectVersionStore();
+
+  Timestamp get_timestamp() const {
+    return _timestamp;
+  }
+
+  void set_timestamp(Timestamp timestamp) {
+    _timestamp = timestamp;
+  }
+
+  bool put(ObjectNumber object_number, ObjectVersionPayload object) {
+    return _table.put(object_number, object)
+            && _reverse_table.put(object, object_number);
+  }
+
+  ObjectVersionPayload* get_object_for_object_number(ObjectNumber object_number) const {
+    return _table.get(object_number);
+  }
+
+  ObjectNumber* get_object_number_for_object(ObjectVersionPayload object) const {
+    return _reverse_table.get(object);
+  }
+};
 
 struct ObjectVersion {
   Timestamp timestamp;
@@ -113,24 +177,11 @@ public:
     return _next_object_number++;
   }
 
-  static Timestamp commit_object_version(ObjectNumber object_number, ObjectVersionPayload payload) {
-    assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
-    MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
-
-    ObjectVersionHistory** history = _object_version_store.get(object_number);
-    assert(history != nullptr, "object number has not been created yet");    
-
-    Timestamp next_timestamp = ++_global_ts;
-
-    ObjectVersion object_version{next_timestamp, payload};
-    (*history)->append(object_version);
-    return next_timestamp;
-  }
-
-  static Timestamp commit_object_versions(LocalObjectVersionStore* local_object_store, const Timestamp& local_timestamp) {
+  static void push_object_versions(LocalObjectVersionStore* local_object_store) {
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
     MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);  
-    
+
+    Timestamp local_timestamp = local_object_store->get_timestamp();
     Timestamp next_timestamp = ++_global_ts;
 
     struct {
@@ -141,8 +192,11 @@ public:
         ObjectVersionHistory** history = _object_version_store.get(object_number);
         assert(history != nullptr, "object number has not been created yet");    
 
-        ObjectVersion version = (*history)->last();
-        assert(version.timestamp <= local_timestamp, "conflict: newer object version already existing in global version store");
+        if ((*history)->length() > 0) {
+          // We might have local objects in staging that haven't been pushed back yet
+          ObjectVersion version = (*history)->last();
+          assert(version.timestamp <= local_timestamp, "conflict: newer object version already existing in global version store");
+        }
 
         ObjectVersion object_version{next_timestamp, object_payload};
         (*history)->append(object_version);
@@ -150,28 +204,34 @@ public:
         return true;
       }
     } function{next_timestamp, local_timestamp};
-    local_object_store->unlink(&function);
+    local_object_store->unlink_forward_map(&function);
+    // TODO: currently destroying only the forward map, for now that is okay as oop->object number can't be wrong without garbage collection
 
-    return next_timestamp;
+    assert(local_object_store->number_of_entries() == 0, "local version store is not empty");
+
+    local_object_store->set_timestamp(next_timestamp);
   }
 
-  static Timestamp pull_latest_or_error(const LocalObjectVersionStore* local_object_store, const Timestamp& local_timestamp) {
+  static void pull_latest_or_error(LocalObjectVersionStore* local_object_store) {
     assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
     MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
 
-    Timestamp current_timestamp = _global_ts;
+    Timestamp local_timestamp = local_object_store->get_timestamp();
 
     local_object_store->iterate_all([&](const ObjectNumber& object_number, const ObjectVersionPayload& object_payload){
       ObjectVersionHistory** history = _object_version_store.get(object_number);
-      assert(history != nullptr, "object number has not been created yet");    
+      assert(history != nullptr, "object number has not been created yet"); 
 
-      ObjectVersion version = (*history)->last();
-      assert(version.timestamp <= local_timestamp, "conflict: newer object version already existing in global version store");
+      if ((*history)->length() > 0) {
+        // We might have local objects in staging that haven't been pushed back yet
+        ObjectVersion version = (*history)->last();
+        assert(version.timestamp <= local_timestamp, "conflict: newer object version already existing in global version store");
+      }
 
       return true;
     });
 
-    return current_timestamp;
+    local_object_store->set_timestamp(_global_ts);
   }
 
   static ObjectVersionPayload get_object_version_for_timestamp(ObjectNumber object_number, const Timestamp& timestamp) {
@@ -184,11 +244,49 @@ public:
     int i = (*history)->find_from_end_if([&](const ObjectVersion& e) {
       return e.timestamp <= timestamp;
     });
-    assert(i != -1, "object history does not contain an object for this timestamp");
 
     ObjectVersion version = (*history)->at(i);
     return version.version_payload;
   }
+
+  // An object number will have a slot for versions to be stored, but may not yet have had any objects versions allocated
+  static bool has_object_been_versioned(ObjectNumber object_number) {
+    assert(GlobalVersionHistoryTable_lock != nullptr, "not initialized!");
+    MutexLocker mu(GlobalVersionHistoryTable_lock, Mutex::_no_safepoint_check_flag);
+
+    ObjectVersionHistory** history = _object_version_store.get(object_number);
+    assert(history != nullptr, "object number has not been created yet");  
+
+    return (*history)->length() > 0;
+  }
 };
+
+class RefreshLocalObjectVersionStore : public OopClosure {
+  const LocalObjectVersionStore& _object_version_store;
+
+public:
+  RefreshLocalObjectVersionStore(const LocalObjectVersionStore& object_version_store):
+    _object_version_store(object_version_store) {}
+
+  void do_oop(oop* p) override {
+    // find the object number associated with this oop
+    // and update it to the correct oop based on the existing version number
+    oop obj = RawAccess<>::oop_load(p);
+    if (obj != nullptr) {
+      ObjectNumber* object_number = _object_version_store.get_object_number_for_object(obj);
+      if (object_number == nullptr) {
+        return; // some junk we weren't tracking
+      }
+
+      if (GlobalVersionHistory::has_object_been_versioned(*object_number)) {
+        RawAccess<>::oop_store(p, GlobalVersionHistory::get_object_version_for_timestamp(*object_number, _object_version_store.get_timestamp()));
+      }
+    }
+  }
+
+  void do_oop(narrowOop* o) override { assert(false, "no support"); }
+}; 
+
+// inherit from BasicOopIterateClosure do_oop to iterate over fields
 
 #endif

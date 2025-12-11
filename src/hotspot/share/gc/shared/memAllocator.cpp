@@ -388,7 +388,14 @@ oop MemAllocator::finish(HeapWord* mem) const {
     oopDesc::set_mark(mem, markWord::prototype());
     oopDesc::release_set_klass(mem, _klass);
   }
-  return cast_to_oop(mem);
+
+  oop obj = cast_to_oop(mem);
+
+  ObjectNumber object_numer = GlobalVersionHistory::next_object_number();
+  JavaThread* current = JavaThread::current();
+  current->set_local_object_version(object_numer, obj);
+
+  return obj;
 }
 
 oop ObjAllocator::initialize(HeapWord* mem) const {

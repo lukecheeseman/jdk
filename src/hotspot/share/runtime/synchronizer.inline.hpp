@@ -46,15 +46,19 @@ inline void ObjectSynchronizer::enter(Handle obj, BasicLock* lock, JavaThread* c
   assert(current == Thread::current(), "must be");
 
   if (LockingMode == LM_LIGHTWEIGHT) {
-    LightweightSynchronizer::enter(obj, lock, current);
+    ObjectMonitor* monitor = LightweightSynchronizer::luke_monitor(current, obj());
+    monitor->enter(current); 
+    //LightweightSynchronizer::enter(obj, lock, current);
   } else {
     enter_legacy(obj, lock, current);
   }
+  current->pull_from_global_version_store();
 }
 
 inline bool ObjectSynchronizer::quick_enter(oop obj, BasicLock* lock, JavaThread* current) {
   assert(current->thread_state() == _thread_in_Java, "invariant");
   NoSafepointVerifier nsv;
+  assert(false, "Erik said i wasn't used");
   if (obj == nullptr) return false;       // Need to throw NPE
 
   if (obj->klass()->is_value_based()) {
@@ -71,8 +75,12 @@ inline bool ObjectSynchronizer::quick_enter(oop obj, BasicLock* lock, JavaThread
 inline void ObjectSynchronizer::exit(oop object, BasicLock* lock, JavaThread* current) {
   current->dec_held_monitor_count();
 
+  current->push_to_global_version_store();
+
   if (LockingMode == LM_LIGHTWEIGHT) {
-    LightweightSynchronizer::exit(object, lock, current);
+    ObjectMonitor* monitor = LightweightSynchronizer::luke_monitor(current, object);
+    monitor->exit(current); 
+    // LightweightSynchronizer::exit(object, lock, current);
   } else {
     exit_legacy(object, lock, current);
   }

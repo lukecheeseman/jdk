@@ -28,3 +28,5 @@
 Timestamp GlobalVersionHistory::_global_ts;
 ObjectNumber GlobalVersionHistory::_next_object_number;
 GlobalObjectVersionStore GlobalVersionHistory::_object_version_store(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE);
+
+LocalObjectVersionStore::LocalObjectVersionStore(): _table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE), _reverse_table(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE) {}

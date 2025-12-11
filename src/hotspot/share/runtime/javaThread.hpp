@@ -1321,19 +1321,14 @@ public:
   }
 
 private:
-  Timestamp _thread_ts;
   LocalObjectVersionStore _object_version_store;
 
 public:
-  void set_version_timestamp(Timestamp ts) { _thread_ts = ts; } 
-
-  Timestamp get_version_timestamp() { return _thread_ts; }
-
-public:
+  Timestamp get_version_timestamp() { return _object_version_store.get_timestamp(); }
 
   /* when we commit, we need to commit all at once
      when we read, we can lazily read, but we should make sure any subsequent
-     read comes from the correct point in time. We should just pickup of values
+     read comes from the correct point in time. We shouldn't just pickup of values
      from different points in time.
 
      E.g.
@@ -1351,18 +1346,31 @@ public:
     return _object_version_store.put(object_number, object_payload);
   } 
 
-  ObjectVersionPayload* get_local_object_version(ObjectNumber object_number) {
-    return _object_version_store.get(object_number);
+  ObjectVersionPayload* get_local_object_for_object_number(ObjectNumber object_number) {
+    return _object_version_store.get_object_for_object_number(object_number);
   }
 
-  void push_local_versioned_objects() {
-    Timestamp timestamp = GlobalVersionHistory::commit_object_versions(&_object_version_store, get_version_timestamp());
-    set_version_timestamp(timestamp);
+  ObjectNumber* get_object_number_for_local_object(ObjectVersionPayload object) {
+    return _object_version_store.get_object_number_for_object(object);
   }
 
-  void pull_latest_version_history() {
-    Timestamp timestamp = GlobalVersionHistory::pull_latest_or_error(&_object_version_store, get_version_timestamp());
-    set_version_timestamp(timestamp);
+private:
+
+  void refresh_local_versioned_objects() { 
+    RefreshLocalObjectVersionStore refresh(_object_version_store);
+    oops_do(&refresh, nullptr);
+  }
+
+public:
+
+  void push_to_global_version_store() {
+    GlobalVersionHistory::push_object_versions(&_object_version_store);
+    refresh_local_versioned_objects();
+  }
+
+  void pull_from_global_version_store() {
+    GlobalVersionHistory::pull_latest_or_error(&_object_version_store);
+    refresh_local_versioned_objects();
   }
 
 };

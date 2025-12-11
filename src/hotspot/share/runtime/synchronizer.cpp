@@ -685,6 +685,7 @@ void ObjectSynchronizer::jni_enter(Handle obj, JavaThread* current) {
       break;
     }
   }
+  current->pull_from_global_version_store();
   current->set_current_pending_monitor_is_from_java(true);
 }
 
@@ -700,6 +701,9 @@ void ObjectSynchronizer::jni_exit(oop obj, TRAPS) {
     // dropped inside exit() and the ObjectMonitor* must be !is_busy().
     monitor = inflate(current, obj, inflate_cause_jni_exit);
   }
+
+  current->push_to_global_version_store();
+
   // If this thread has locked the object, exit the monitor. We
   // intentionally do not use CHECK on check_owner because we must exit the
   // monitor even if an exception was already pending.
@@ -741,7 +745,8 @@ int ObjectSynchronizer::wait(Handle obj, jlong millis, TRAPS) {
 
   ObjectMonitor* monitor;
   if (LockingMode == LM_LIGHTWEIGHT) {
-    monitor = LightweightSynchronizer::inflate_locked_or_imse(obj(), inflate_cause_wait, CHECK_0);
+    monitor = LightweightSynchronizer::luke_monitor(current, obj());
+    // monitor = LightweightSynchronizer::inflate_locked_or_imse(obj(), inflate_cause_wait, CHECK_0);
   } else {
     // The ObjectMonitor* can't be async deflated because the _waiters
     // field is incremented before ownership is dropped and decremented
@@ -779,21 +784,22 @@ void ObjectSynchronizer::notify(Handle obj, TRAPS) {
   JavaThread* current = THREAD;
 
   markWord mark = obj->mark();
-  if (LockingMode == LM_LIGHTWEIGHT) {
-    if ((mark.is_fast_locked() && current->lock_stack().contains(obj()))) {
-      // Not inflated so there can't be any waiters to notify.
-      return;
-    }
-  } else if (LockingMode == LM_LEGACY) {
-    if (mark.has_locker() && current->is_lock_owned((address)mark.locker())) {
-      // Not inflated so there can't be any waiters to notify.
-      return;
-    }
-  }
+  // if (LockingMode == LM_LIGHTWEIGHT) {
+  //   if ((mark.is_fast_locked() && current->lock_stack().contains(obj()))) {
+  //     // Not inflated so there can't be any waiters to notify.
+  //     return;
+  //   }
+  // } else if (LockingMode == LM_LEGACY) {
+  //   if (mark.has_locker() && current->is_lock_owned((address)mark.locker())) {
+  //     // Not inflated so there can't be any waiters to notify.
+  //     return;
+  //   }
+  // }
 
   ObjectMonitor* monitor;
   if (LockingMode == LM_LIGHTWEIGHT) {
-    monitor = LightweightSynchronizer::inflate_locked_or_imse(obj(), inflate_cause_notify, CHECK);
+    // monitor = LightweightSynchronizer::inflate_locked_or_imse(obj(), inflate_cause_notify, CHECK);
+    monitor = LightweightSynchronizer::luke_monitor(current, obj());
   } else {
     // The ObjectMonitor* can't be async deflated until ownership is
     // dropped by the calling thread.
@@ -806,22 +812,22 @@ void ObjectSynchronizer::notify(Handle obj, TRAPS) {
 void ObjectSynchronizer::notifyall(Handle obj, TRAPS) {
   JavaThread* current = THREAD;
 
-  markWord mark = obj->mark();
-  if (LockingMode == LM_LIGHTWEIGHT) {
-    if ((mark.is_fast_locked() && current->lock_stack().contains(obj()))) {
-      // Not inflated so there can't be any waiters to notify.
-      return;
-    }
-  } else if (LockingMode == LM_LEGACY) {
-    if (mark.has_locker() && current->is_lock_owned((address)mark.locker())) {
-      // Not inflated so there can't be any waiters to notify.
-      return;
-    }
-  }
+  // markWord mark = obj->mark();
+  // if (LockingMode == LM_LIGHTWEIGHT) {
+  //   if ((mark.is_fast_locked() && current->lock_stack().contains(obj()))) {
+  //     // Not inflated so there can't be any waiters to notify.
+  //     return;
+  //   }
+  // } else if (LockingMode == LM_LEGACY) {
+  //   if (mark.has_locker() && current->is_lock_owned((address)mark.locker())) {
+  //     // Not inflated so there can't be any waiters to notify.
+  //     return;
+  //   }
+  // }
 
   ObjectMonitor* monitor;
   if (LockingMode == LM_LIGHTWEIGHT) {
-    monitor = LightweightSynchronizer::inflate_locked_or_imse(obj(), inflate_cause_notify, CHECK);
+    monitor = LightweightSynchronizer::luke_monitor(current, obj());
   } else {
     // The ObjectMonitor* can't be async deflated until ownership is
     // dropped by the calling thread.
@@ -925,6 +931,8 @@ static markWord read_stable_mark(oop obj) {
 //   generated hashCode values:
 
 static intptr_t get_next_hash(Thread* current, oop obj) {
+  return 1; // it was too hard
+
   intptr_t value = 0;
   if (hashCode == 0) {
     // This form uses global Park-Miller RNG.

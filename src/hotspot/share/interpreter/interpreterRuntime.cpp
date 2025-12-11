@@ -752,7 +752,8 @@ JRT_LEAF(void, InterpreterRuntime::monitorexit(BasicObjectLock* elem))
     }
     return;
   }
-  ObjectSynchronizer::exit(obj, elem->lock(), JavaThread::current());
+  JavaThread* jt = JavaThread::current();
+  ObjectSynchronizer::exit(obj, elem->lock(), jt);
   // Free entry. If it is not cleared, the exception handling code will try to unlock the monitor
   // again at method exit or in the case of an exception.
   elem->set_obj(nullptr);

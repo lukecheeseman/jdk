@@ -1817,6 +1817,9 @@ void ObjectMonitor::wait(jlong millis, bool interruptible, TRAPS) {
   intx save = _recursions;     // record the old recursion count
   _waiters++;                  // increment the number of waiters
   _recursions = 0;             // set the recursion level to be 1
+
+  current->push_to_global_version_store();
+
   exit(current);               // exit the monitor
   guarantee(!has_owner(current), "invariant");
 
@@ -1932,6 +1935,7 @@ void ObjectMonitor::wait(jlong millis, bool interruptible, TRAPS) {
       // could succeed but we can't unmount now.
       NoPreemptMark npm(current);
       enter(current);
+      current->pull_from_global_version_store();
     } else {
       guarantee(v == ObjectWaiter::TS_ENTER, "invariant");
       reenter_internal(current, &node);

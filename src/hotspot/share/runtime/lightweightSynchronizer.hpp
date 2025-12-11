@@ -54,6 +54,8 @@ class LightweightSynchronizer : AllStatic {
   static bool needs_resize();
   static bool resize_table(JavaThread* current);
 
+  static ObjectMonitor* luke_monitor(JavaThread* current, oop obj);
+
  private:
   static inline bool fast_lock_try_enter(oop obj, LockStack& lock_stack, JavaThread* current);
   static bool fast_lock_spin_enter(oop obj, LockStack& lock_stack, JavaThread* current, bool observed_deflation);

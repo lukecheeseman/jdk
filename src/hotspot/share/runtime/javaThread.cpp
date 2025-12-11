@@ -523,7 +523,7 @@ JavaThread::JavaThread(MemTag mem_tag) :
   _om_cache(this),
 
   // Object versioning data structures
-  _object_version_store(INITIAL_VERSION_TABLE_SIZE, MAX_VERSION_TABLE_SIZE)
+  _object_version_store()
   
   {
   set_jni_functions(jni_functions());

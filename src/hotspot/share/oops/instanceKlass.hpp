@@ -523,8 +523,12 @@ public:
   ClassState  init_state() const           { 
     // This is reading a volatile
     // We need to pull in any changes made by other threads and their class loading
-    JavaThread::current()->pull_latest_version_history();
 
+    // This thread might be a compiler thread
+    if (Thread::current()->is_Java_thread()) {
+      JavaThread::current()->pull_from_global_version_store();
+    }
+    
     return Atomic::load_acquire(&_init_state); 
   
   }

@@ -161,5 +161,11 @@ oop ZObjArrayAllocator::initialize(HeapWord* mem) const {
     oopDesc::release_set_mark(mem, markWord::prototype());
   }
 
-  return cast_to_oop(mem);
+  oop obj = cast_to_oop(mem);
+
+  ObjectNumber object_numer = GlobalVersionHistory::next_object_number();
+  JavaThread* current = JavaThread::current();
+  current->set_local_object_version(object_numer, obj);
+
+  return obj;
 }

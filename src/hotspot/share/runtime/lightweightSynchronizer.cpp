@@ -85,7 +85,13 @@ class ObjectMonitorTable : AllStatic {
 
     bool equals(ObjectMonitor** value) {
       assert(*value != nullptr, "must be");
-      return (*value)->object_refers_to(_obj);
+      JavaThread* current = JavaThread::current();
+      ObjectNumber* that_object_number = current->get_object_number_for_local_object((*value)->object());
+
+      ObjectNumber* this_object_number = current->get_object_number_for_local_object(_obj);
+      assert(this_object_number != nullptr, "must be");
+      assert(that_object_number != nullptr, "must be");
+      return *this_object_number == *that_object_number;
     }
 
     bool is_dead(ObjectMonitor** value) {
@@ -186,7 +192,7 @@ class ObjectMonitorTable : AllStatic {
     ObjectMonitor* result = nullptr;
     Lookup lookup_f(obj);
     auto found_f = [&](ObjectMonitor** found) {
-      assert((*found)->object_peek() == obj, "must be");
+      // assert((*found)->object_peek() == obj, "must be");  // Luke: i think this isn't true with our locking model
       result = *found;
     };
     _table->get(current, lookup_f, found_f);
@@ -282,7 +288,7 @@ class ObjectMonitorTable : AllStatic {
     ObjectMonitor* result = monitor;
     Lookup lookup_f(obj);
     auto found_f = [&](ObjectMonitor** found) {
-      assert((*found)->object_peek() == obj, "must be");
+      // assert((*found)->object_peek() == obj, "must be");
       result = *found;
     };
     bool grow;
@@ -403,7 +409,7 @@ ObjectMonitor* LightweightSynchronizer::get_or_insert_monitor(oop object, JavaTh
 // Add the hashcode to the monitor to match the object and put it in the hashtable.
 ObjectMonitor* LightweightSynchronizer::add_monitor(JavaThread* current, ObjectMonitor* monitor, oop obj) {
   assert(UseObjectMonitorTable, "must be");
-  assert(obj == monitor->object(), "must be");
+  // assert(obj == monitor->object(), "must be");
 
   intptr_t hash = obj->mark().hash();
   assert(hash != 0, "must be set when claiming the object monitor");
@@ -654,6 +660,16 @@ void LightweightSynchronizer::enter_for(Handle obj, BasicLock* lock, JavaThread*
 
   assert(monitor != nullptr, "LightweightSynchronizer::enter_for must succeed");
   assert(!UseObjectMonitorTable || lock->object_monitor_cache() == nullptr, "unused. already cleared");
+}
+
+ObjectMonitor* LightweightSynchronizer::luke_monitor(JavaThread* current, oop obj) {
+  obj->identity_hash(); // inflate the hash code
+  ObjectMonitor* monitor = ObjectMonitorTable::monitor_get(current, obj);
+  if (monitor != nullptr)
+    return monitor;
+
+  monitor = new ObjectMonitor(obj);
+  return LightweightSynchronizer::add_monitor(current, monitor, obj);
 }
 
 void LightweightSynchronizer::enter(Handle obj, BasicLock* lock, JavaThread* current) {
@@ -1162,6 +1178,8 @@ ObjectMonitor* LightweightSynchronizer::inflate_and_enter(oop object, BasicLock*
 }
 
 void LightweightSynchronizer::deflate_monitor(Thread* current, oop obj, ObjectMonitor* monitor) {
+  return; // for now, don't do this
+
   if (obj != nullptr) {
     deflate_mark_word(obj);
   }

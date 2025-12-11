@@ -260,18 +260,22 @@ inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_in_he
 // Either way, firs thing, lets try to bury the object number into the zpointer
 // without the rest of the jvm exploding
 
+
+/*
+  we have to deeply version an object and it's object graph
+  as we must still be able to use fields (say a static on a class object)
+  as communication channels between threads.
+
+  on the load, we need to figure out what the oop fields on the object are
+  as the object number, can we not store in the oop that the object is versioned
+*/
+
 // Luke:
 // This function manages storing to the bits of memory outside the heap that 
 // are not managed. These are the roots.
 template <DecoratorSet decorators, typename BarrierSetT>
 inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_not_in_heap(zpointer* p, oop value) {
   verify_decorators_absent<ON_UNKNOWN_OOP_REF>();
-
-  // if (!is_store_barrier_no_keep_alive<decorators>()) {
-  //   store_barrier_native_without_healing(p);
-  // }
-
-  // Raw::store(p, store_good(value));
 
   // TODO: Erik what are the following methods for - does it do some management
   // of the previous value at the root?
@@ -292,16 +296,12 @@ inline void ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_store_not_i
     return;
   }
 
-  // Should this commit, constitute commiting everything the thread has
-  ObjectNumber objectNumber = GlobalVersionHistory::next_object_number();
-  Timestamp global_ts = GlobalVersionHistory::commit_object_version(objectNumber, value);
-  
   JavaThread* jt = JavaThread::current();
-  jt->set_version_timestamp(global_ts);
+  ObjectNumber* object_number = jt->get_object_number_for_local_object(value);
+  assert(object_number != nullptr, "must be");
+  zpointer versioned_oop = to_zpointer((*object_number << ZPointerObjectNumberShift) | 1);
 
-  zpointer zValue = to_zpointer((objectNumber << ZPointerObjectNumberShift) | 1);
-
-  Raw::store(p, zValue);
+  Raw::store(p, versioned_oop);
 }
 
 template <DecoratorSet decorators, typename BarrierSetT>
@@ -515,7 +515,7 @@ inline oop ZBarrierSet::AccessBarrier<decorators, BarrierSetT>::oop_load_not_in_
 
     // If we already have a version for this thread, then return that 
     JavaThread* jt = JavaThread::current();
-    ObjectVersionPayload* local_version = jt->get_local_object_version(object_number);
+    ObjectVersionPayload* local_version = jt->get_local_object_for_object_number(object_number);
     if (local_version != nullptr) {
       assert(*local_version != nullptr, "nullptr found as versioned payload");
       return *local_version;

@@ -300,6 +300,38 @@ inline zaddress ZBarrier::make_load_good(zpointer o) {
     return zaddress::null;
   }
 
+  if ((untype(o) & 1) != 0) {
+    const size_t object_number = untype(o) >> (ZPointerRemappedShift + ZPointerRemappedBits);
+
+    // If we already have a version for this thread, then return that 
+    JavaThread* jt = JavaThread::current();
+    ObjectVersionPayload* local_version = jt->get_local_object_for_object_number(object_number);
+    if (local_version != nullptr) {
+      assert(*local_version != nullptr, "nullptr found as versioned payload");
+      return to_zaddress(*local_version);
+    }
+
+    ObjectVersionPayload version = GlobalVersionHistory::get_object_version_for_timestamp(object_number, jt->get_version_timestamp());    
+    zaddress from_addr = to_zaddress(version);
+    assert(ZHeap::heap()->is_object_live(from_addr), "Should be live");
+
+    const size_t size = ZUtils::object_size(from_addr);
+    const zaddress to_addr = ZHeap::heap()->alloc_object(size);
+    if (is_null(to_addr)) {
+      assert(false, "Failed to allocate local version for object");
+      return zaddress::null;
+    }
+
+    // Copy object
+    ZUtils::object_copy_disjoint(from_addr, to_addr, size);
+
+    // Record that this thread has created a working copy of this object number
+    // for this concurrent unit
+    jt->set_local_object_version(object_number, to_oop(to_addr));
+
+    return to_addr;
+  }
+
   if (ZPointer::is_load_good_or_null(o)) {
     return ZPointer::uncolor(o);
   }
@@ -466,39 +498,6 @@ inline zaddress ZBarrier::load_barrier_on_oop_field_preloaded(volatile zpointer*
   auto slow_path = [](zaddress addr) -> zaddress {
     return addr;
   };
-
-  if ((untype(o) & 1) != 0) {
-    const size_t object_number = untype(o) >> (ZPointerRemappedShift + ZPointerRemappedBits);
-
-    // If we already have a version for this thread, then return that 
-    JavaThread* jt = JavaThread::current();
-    ObjectVersionPayload* local_version = jt->get_local_object_version(object_number);
-    if (local_version != nullptr) {
-      assert(*local_version != nullptr, "nullptr found as versioned payload");
-      return to_zaddress(*local_version);
-    }
-
-    ObjectVersionPayload version = GlobalVersionHistory::get_object_version_for_timestamp(object_number, jt->get_version_timestamp());    
-    zaddress from_addr = to_zaddress(version);
-    assert(ZHeap::heap()->is_object_live(from_addr), "Should be live");
-
-    const size_t size = ZUtils::object_size(from_addr);
-    const zaddress to_addr = ZHeap::heap()->alloc_object(size);
-    if (is_null(to_addr)) {
-      assert(false, "Failed to allocate local version for object");
-      return zaddress::null;
-    }
-
-    // Copy object
-    ZUtils::object_copy_disjoint(from_addr, to_addr, size);
-
-    // Record that this thread has created a working copy of this object number
-    // for this concurrent unit
-    jt->set_local_object_version(object_number, to_oop(to_addr));
-
-    return to_addr;
-  }
-
   return barrier(is_load_good_or_null_fast_path, slow_path, color_load_good, p, o);
 }
 

@@ -1033,8 +1033,8 @@ void InterpreterMacroAssembler::lock_object(Register lock_reg) {
   // Load object pointer into obj_reg
   movptr(obj_reg, Address(lock_reg, BasicObjectLock::obj_offset()));
 
-  lightweight_lock(lock_reg, obj_reg, swap_reg, tmp_reg, slow_case);
-  jmp(done);
+  // lightweight_lock(lock_reg, obj_reg, swap_reg, tmp_reg, slow_case);  // Luke: not for now
+  // jmp(done);
 
   bind(slow_case);
 
@@ -1075,8 +1075,8 @@ void InterpreterMacroAssembler::unlock_object(Register lock_reg) {
   // Free entry
   movptr(Address(lock_reg, BasicObjectLock::obj_offset()), NULL_WORD);
 
-  lightweight_unlock(obj_reg, swap_reg, header_reg, slow_case);
-  jmp(done);
+  // lightweight_unlock(obj_reg, swap_reg, header_reg, slow_case);  // Luke: not for now
+  // jmp(done);
 
   bind(slow_case);
   // Call the runtime routine for slow case.
